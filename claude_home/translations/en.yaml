@@ -1,0 +1,26 @@
+configuration:
+  claude_oauth_token:
+    name: Claude subscription token
+    description: Run `claude setup-token` on any computer with Claude Code and paste the sk-ant-oat… token.
+  main_model:
+    name: Main model
+    description: Handles every request; fast and cheap. haiku, sonnet or opus (or a full model name).
+  planner_model:
+    name: Planner model
+    description: Subagent the main model delegates complex, multi-step requests to.
+  session_idle_minutes:
+    name: Conversation memory (minutes)
+    description: A conversation keeps its context until it has been idle this long.
+  request_timeout:
+    name: Request timeout (seconds)
+  api_token:
+    name: API token
+    description: Token HA and remote Claude Code use to call this add-on. Leave empty to auto-generate (shown in the log).
+  ha_token:
+    name: Home Assistant long-lived token
+    description: Optional. Only needed if the add-on can't reach HA's MCP server with its built-in Supervisor token.
+  extra_instructions:
+    name: Extra instructions
+    description: Appended to the system prompt, e.g. house layout, nicknames for rooms.
+network:
+  8099/tcp: Only needed for remote Claude Code (MCP). Leave empty to keep it internal.

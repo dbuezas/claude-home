@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Claude Home add-on",
+        "description": "Connect to the Claude Home add-on. Host is shown on the add-on's Info page (Hostname); the token is printed in the add-on log.",
+        "data": { "host": "Host", "port": "Port", "token": "API token" }
+      },
+      "hassio_confirm": {
+        "title": "Claude Home",
+        "description": "Use the Claude Home add-on as a conversation agent?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Can't reach the add-on. Is it running?",
+      "invalid_auth": "Wrong API token."
+    },
+    "abort": {
+      "already_configured": "Already configured.",
+      "cannot_connect": "Can't reach the add-on. Is it running?",
+      "invalid_auth": "Wrong API token."
+    }
+  }
+}
