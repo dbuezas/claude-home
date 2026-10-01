@@ -10,7 +10,7 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { readOptions, writeOptions } from "./ha.mjs";
+import { supervisor, readOptions, writeOptions } from "./ha.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -233,13 +233,14 @@ http
 
 startUi({ cfg, settings, sessions, readJson, send, log, admin });
 
-// 0.5.0 merged the two passcodes into one.
-{
-  const o = readOptions(cfg.optionsFile);
-  if (o.admin_passcode || o.instructions_passcode) {
-    writeOptions(cfg.optionsFile, { ...o, passcode: o.passcode || o.admin_passcode || o.instructions_passcode })
-      .then(() => log("migrated passcodes to a single 'passcode' option"))
-      .catch((e) => log("passcode migration failed:", e.message));
-  }
-}
+// 0.5.0 merged the two passcodes into one. options.json drops keys that are no
+// longer in the schema, so read the old ones from the Supervisor.
+supervisor("/addons/self/info")
+  .then(async ({ options: o = {} }) => {
+    if (!o.admin_passcode && !o.instructions_passcode) return;
+    const current = readOptions(cfg.optionsFile);
+    await writeOptions(cfg.optionsFile, { ...current, passcode: current.passcode || o.passcode || o.admin_passcode || o.instructions_passcode });
+    log("migrated passcodes to a single 'passcode' option");
+  })
+  .catch((e) => log("passcode migration failed:", e.message));
 admin.enforceProtected(true);
