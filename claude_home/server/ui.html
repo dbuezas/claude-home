@@ -42,6 +42,12 @@
   input[type=text], input[type=number], input[type=search], select, textarea {
     width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--text); font: inherit;
   }
+  select {
+    appearance: none; -webkit-appearance: none; padding-right: 34px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23888' stroke-width='2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center;
+  }
+  select option { background: var(--card); color: var(--text); }
   textarea { min-height: 110px; resize: vertical; }
   button.primary, button.secondary { border: 0; border-radius: 8px; padding: 9px 16px; font: inherit; cursor: pointer; }
   button.primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
@@ -83,7 +89,7 @@
     </div>
     <div class="card">
       <h2>Recent requests</h2>
-      <div class="table-wrap"><table><thead><tr><th>When</th><th>From</th><th>Request</th><th>Reply</th><th>Time</th></tr></thead><tbody id="recent"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>When</th><th>From</th><th>Request</th><th>Reply</th><th>Tools used</th><th>Time</th></tr></thead><tbody id="recent"></tbody></table></div>
     </div>
   </section>
 
@@ -105,13 +111,12 @@
   <section id="settings">
     <form class="card" id="settingsform">
       <h2>Settings</h2>
-      <datalist id="models"><option value="haiku"><option value="sonnet"><option value="opus"></datalist>
       <label for="main_model">Main model (answers every request)</label>
-      <input type="text" id="main_model" list="models">
-      <label for="planner_model">Planner model (for complex, multi-step requests)</label>
-      <input type="text" id="planner_model" list="models">
+      <select id="main_model" class="model"></select>
+      <label for="planner_model">Planner model (the main model may hand complex, multi-step requests to it)</label>
+      <select id="planner_model" class="model"></select>
       <label for="effort">Effort (lower is faster; applies to the main model)</label>
-      <select id="effort"><option value="default">Model default</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select>
+      <select id="effort"><option value="default">Model default</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select>
       <div class="grid">
         <div><label for="session_idle_minutes">Conversation memory (minutes)</label><input type="number" id="session_idle_minutes" min="1" max="1440"></div>
         <div><label for="request_timeout">Request timeout (seconds)</label><input type="number" id="request_timeout" min="10" max="600"></div>
@@ -188,8 +193,8 @@ loaders.status = async () => {
       ? s.mcp.tools.map((t) => `<span class="chip ${t.name.includes("script") ? "script" : ""}" title="${esc(t.description)}">${esc(t.name)}</span>`).join("")
       : `<span class="bad">${esc(s.mcp.error)}</span>`;
     $("#recent").innerHTML = s.recent.length
-      ? s.recent.map((r) => `<tr><td class="muted">${ago(r.at)}</td><td>${esc(r.source)}</td><td>${esc(r.text)}</td><td>${r.error ? `<span class="bad">${esc(r.error)}</span>` : r.reply === null ? `<span class="muted">working…</span>` : esc(r.reply)}</td><td class="muted">${r.ms ? (r.ms / 1000).toFixed(1) + "s" : ""}</td></tr>`).join("")
-      : `<tr><td colspan="5" class="muted">No requests yet.</td></tr>`;
+      ? s.recent.map((r) => `<tr><td class="muted">${ago(r.at)}</td><td>${esc(r.source)}<div class="ent-id">${esc(r.model || "")}</div></td><td>${esc(r.text)}</td><td>${r.error ? `<span class="bad">${esc(r.error)}</span>` : r.reply === null ? `<span class="muted">working…</span>` : esc(r.reply)}</td><td>${(r.tools || []).map((t) => `<span class="chip ${t === "Agent" ? "script" : ""}">${t === "Agent" ? "planner" : esc(t)}</span>`).join(" ") || '<span class="muted">none</span>'}</td><td class="muted">${r.ms ? (r.ms / 1000).toFixed(1) + "s" : ""}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="muted">No requests yet.</td></tr>`;
   } catch (e) { $("#stats").innerHTML = `<div class="bad">${esc(e.message)}</div>`; }
 };
 
@@ -218,7 +223,14 @@ $("#chatform").onsubmit = async (e) => {
 // ---- settings
 const FIELDS = ["main_model", "planner_model", "effort", "session_idle_minutes", "request_timeout", "extra_instructions"];
 loaders.settings = async () => {
-  try { const o = await api("api/options"); FIELDS.forEach((k) => ($("#" + k).value = o[k] || (k === "effort" ? "default" : ""))); }
+  try {
+    const o = await api("api/options");
+    for (const k of ["main_model", "planner_model"]) {
+      const names = [...new Set(["haiku", "sonnet", "opus", o[k]].filter(Boolean))];
+      $("#" + k).innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+    }
+    FIELDS.forEach((k) => ($("#" + k).value = o[k] || (k === "effort" ? "default" : "")));
+  }
   catch (e) { toast(e.message); }
 };
 $("#settingsform").onsubmit = async (e) => {

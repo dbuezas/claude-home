@@ -81,6 +81,7 @@ function runClaude(text, sid) {
   const args = [
     "-p",
     "--output-format", "json",
+    "--verbose", // full message list, so we can see which tools ran
     "--model", s.mainModel,
     "--tools", "Agent", // only built-in tool: subagents. No Bash/Edit/Read/Web.
     "--mcp-config", cfg.mcpConfig,
@@ -109,10 +110,16 @@ function runClaude(text, sid) {
       try { r = JSON.parse(out); } catch {
         return reject(new Error(`claude exited ${code}: ${(err || out).trim().slice(0, 500)}`));
       }
-      // With verbose enabled, json output is the whole message array; the result is its last entry.
-      if (Array.isArray(r)) r = r.findLast((m) => m.type === "result") || {};
+      // With --verbose, json output is the whole message array; the result is its last entry.
+      const msgs = Array.isArray(r) ? r : [r];
+      const tools = msgs
+        .filter((m) => m.type === "assistant" && !m.parent_tool_use_id)
+        .flatMap((m) => m.message?.content || [])
+        .filter((c) => c.type === "tool_use")
+        .map((c) => (c.name === "Task" ? "Agent" : c.name).replace(/^mcp__ha__/, ""));
+      r = msgs.findLast((m) => m.type === "result") || {};
       if (r.is_error) return reject(new Error(r.result || r.subtype || "claude error"));
-      resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms });
+      resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms, tools });
     });
     p.stdin.end(text);
   });
@@ -123,7 +130,7 @@ async function ask(key, text) {
   const job = prev.catch(() => {}).then(async () => {
     const existing = sessions.get(key);
     const fresh = !existing || Date.now() - existing.last > settings().idleMs;
-    const entry = { at: new Date().toISOString(), source: key.split(":")[0], text, reply: null, ms: null, error: null };
+    const entry = { at: new Date().toISOString(), source: key.split(":")[0], model: settings().mainModel, text, reply: null, tools: [], ms: null, error: null };
     recent.unshift(entry);
     recent.length = Math.min(recent.length, 50);
     const t0 = Date.now();
@@ -140,7 +147,7 @@ async function ask(key, text) {
       Object.assign(entry, { error: e.message, ms: Date.now() - t0 });
       throw e;
     }
-    Object.assign(entry, { reply: r.text, ms: Date.now() - t0 });
+    Object.assign(entry, { reply: r.text, tools: r.tools, ms: Date.now() - t0 });
     sessions.set(key, { sid: r.sid, last: Date.now() });
     log(`[${key}] ${r.ms ?? "?"}ms ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;

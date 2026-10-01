@@ -1,7 +1,7 @@
 // Ingress web UI: status, test chat, settings, exposed entities, remote setup.
 // Only Home Assistant's ingress proxy may reach it; HA has already authenticated the user.
 import http from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import WebSocket from "ws";
@@ -120,6 +120,8 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
     for (const [k, clean] of Object.entries(EDITABLE)) if (k in changes) next[k] = clean(changes[k]);
     if (!next.extra_instructions) delete next.extra_instructions;
     await supervisor("/addons/self/options", { method: "POST", body: JSON.stringify({ options: next }) });
+    // Supervisor only rewrites options.json when the add-on restarts; apply the change now.
+    writeFileSync(cfg.optionsFile, JSON.stringify(next));
   }
 
   const routes = {
