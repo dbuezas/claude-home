@@ -32,19 +32,24 @@ HA then shows **Claude Home discovered** under Settings → Devices & services �
 **4. Use it** – Settings → Voice assistants → your assistant → Conversation agent: **Claude Home**.
 Enable *Prefer handling commands locally* so "turn off the kitchen light" stays instant and only real questions go to Claude.
 
-## Changes that need a passcode
+## Passcode and protected devices
 
-Set passcodes on the add-on's web page (sidebar → Claude → Settings). Without a passcode, the feature is off.
+Set a passcode on the add-on's web page (sidebar → Claude → Settings). Without it, these features are off.
 
-- **Admin passcode**: Claude may rename entities, devices and areas, create areas, and move things between areas.
-- **Instructions passcode**: Claude may edit its own extra instructions ("remember that…").
+With the passcode, Claude may propose:
+- renaming entities, devices and areas, creating areas, moving things between areas;
+- edits to its own extra instructions ("remember that…");
+- adding devices to or removing them from the **protected** list;
+- reading or using a **protected** device.
 
-How it works:
-1. You ask for a change. Claude can only *propose* it.
-2. The add-on (not Claude) answers with the exact list of changes and the passcode to say.
-3. The change waits until one of your messages contains the passcode (up to 10 minutes). The add-on checks it, applies the stored list, and tells Claude what was applied. A misheard word does not cancel it; saying no or asking for something else does.
+Protected devices are hidden from Assist, so Claude's normal Home Assistant tools can't see or touch them (not even with "turn off the living room"). Manage the list on the Devices tab, or ask Claude.
 
-The passcode is not a secret. It proves the "yes" came from you: the add-on only looks for it in your own message, never in anything Claude writes. Remote Claude Code can't use passcodes.
+How a change works:
+1. You ask. Claude can only *propose*.
+2. The add-on (not Claude) answers with the exact list and the passcode to say.
+3. The change waits until one of your messages contains the passcode (up to 10 minutes). The add-on checks it, does exactly the stored list, and tells Claude the result. A misheard word does not cancel it; saying no or asking for something else does.
+
+The passcode is not a secret. It proves the "yes" came from you: the add-on only looks for it in your own message, never in anything Claude writes. Remote Claude Code can't use it.
 
 ## Remote Claude Code
 

@@ -45,7 +45,7 @@ export function readOptions(file) {
 export async function writeOptions(file, options) {
   const next = Object.fromEntries(Object.entries(options).filter(([, v]) => v !== "" && v != null));
   // Removed options; the Supervisor rejects unknown ones.
-  for (const k of ["planner_model", "admin_hint", "instructions_hint"]) delete next[k];
+  for (const k of ["planner_model", "admin_hint", "instructions_hint", "admin_passcode", "instructions_passcode"]) delete next[k];
   await supervisor("/addons/self/options", { method: "POST", body: JSON.stringify({ options: next }) });
   writeFileSync(file, JSON.stringify(next));
 }

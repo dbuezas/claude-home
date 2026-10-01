@@ -10,6 +10,7 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { readOptions, writeOptions } from "./ha.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -242,4 +243,15 @@ http
   })
   .listen(cfg.port, () => log(`claude-home API listening on :${cfg.port}`));
 
-startUi({ cfg, settings, ask, recent, sessions, readJson, send, log });
+startUi({ cfg, settings, ask, recent, sessions, readJson, send, log, admin });
+
+// 0.5.0 merged the two passcodes into one.
+{
+  const o = readOptions(cfg.optionsFile);
+  if (o.admin_passcode || o.instructions_passcode) {
+    writeOptions(cfg.optionsFile, { ...o, passcode: o.passcode || o.admin_passcode || o.instructions_passcode })
+      .then(() => log("migrated passcodes to a single 'passcode' option"))
+      .catch((e) => log("passcode migration failed:", e.message));
+  }
+}
+admin.enforceProtected(true);

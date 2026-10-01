@@ -125,12 +125,10 @@
       <div class="row" style="margin-top:14px"><button class="primary" id="savesettings">Save</button></div>
     </form>
     <form class="card" id="passform">
-      <h2>Changes that need a passcode</h2>
-      <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> changes. It first shows exactly what will change. Nothing happens until a message from you contains the passcode. The change waits up to 10 minutes, so a misheard word does not cancel it. Saying no cancels it. The passcode is not a secret: it proves the "yes" came from you. The add-on checks it in your message only, never in anything Claude writes. Remote Claude Code can't use passcodes.</div>
-      <label for="admin_passcode">Admin passcode: rename things and move them between areas</label>
-      <input type="text" id="admin_passcode" autocomplete="off" placeholder="Empty: this feature is off">
-      <label for="instructions_passcode">Instructions passcode: let Claude edit its own extra instructions</label>
-      <input type="text" id="instructions_passcode" autocomplete="off" placeholder="Empty: this feature is off">
+      <h2>Passcode</h2>
+      <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> renames, area changes, edits to its own instructions, changes to the protected list, and any use of a protected device. It first shows exactly what will change. Nothing happens until a message from you contains the passcode. The change waits up to 10 minutes, so a misheard word does not cancel it. Saying no cancels it. The passcode is not a secret: it proves the "yes" came from you. The add-on checks it in your message only, never in anything Claude writes. Remote Claude Code can't use passcodes.</div>
+      <label for="passcode">Passcode</label>
+      <input type="text" id="passcode" autocomplete="off" placeholder="Empty: these features are off">
       <div class="hint">Use words that are easy to say and that speech recognition gets right, e.g. "purple pancake". Case and punctuation don't matter.</div>
       <div class="row" style="margin-top:14px"><button class="primary" id="savepass">Save</button></div>
     </form>
@@ -139,18 +137,18 @@
   <section id="devices">
     <div class="card">
       <h2>Devices Claude may see and control</h2>
-      <div class="hint" style="margin:0 0 10px">This is Home Assistant's "Expose to Assist" setting. It applies to every Assist agent, not only Claude.</div>
+      <div class="hint" style="margin:0 0 10px"><b>On</b> is Home Assistant's "Expose to Assist" setting. It applies to every Assist agent, not only Claude. <b>Protected</b> hides a device from Assist; Claude can then only read or use it after you confirm with the passcode.</div>
       <div class="row">
         <input class="grow" type="search" id="entsearch" placeholder="Search name or entity id">
         <select id="entdomain" style="width:auto"><option value="">All types</option></select>
-        <select id="entfilter" style="width:auto"><option value="">All</option><option value="1">Exposed</option><option value="0">Hidden</option></select>
+        <select id="entfilter" style="width:auto"><option value="">All</option><option value="1">Exposed</option><option value="0">Hidden</option><option value="p">Protected</option></select>
       </div>
       <div class="row" style="margin-top:10px">
         <span class="muted grow" id="entcount"></span>
         <button class="secondary" id="exposeall">Expose shown</button>
         <button class="secondary" id="hideall">Hide shown</button>
       </div>
-      <div class="table-wrap" style="margin-top:8px"><table><thead><tr><th style="width:40px">On</th><th>Entity</th><th>State</th></tr></thead><tbody id="entities"></tbody></table></div>
+      <div class="table-wrap" style="margin-top:8px"><table><thead><tr><th style="width:40px">On</th><th style="width:70px">Protected</th><th>Entity</th><th>State</th></tr></thead><tbody id="entities"></tbody></table></div>
     </div>
   </section>
 
@@ -228,7 +226,7 @@ $("#chatform").onsubmit = async (e) => {
 };
 
 // ---- settings
-const PASS = ["admin_passcode", "instructions_passcode"];
+const PASS = ["passcode"];
 const FIELDS = ["main_model", "effort", "session_idle_minutes", "request_timeout", "extra_instructions"];
 loaders.settings = async () => {
   try {
@@ -260,15 +258,16 @@ $("#passform").onsubmit = async (e) => {
 let ents = [];
 const shown = () => {
   const q = $("#entsearch").value.toLowerCase(), d = $("#entdomain").value, f = $("#entfilter").value;
-  return ents.filter((x) => (!d || x.domain === d) && (f === "" || String(+x.exposed) === f) && (!q || x.name.toLowerCase().includes(q) || x.entity_id.includes(q)));
+  return ents.filter((x) => (!d || x.domain === d) && (f === "" || (f === "p" ? x.protected : String(+x.exposed) === f)) && (!q || x.name.toLowerCase().includes(q) || x.entity_id.includes(q)));
 };
 function renderEnts() {
   const list = shown();
-  $("#entcount").textContent = `${list.length} shown · ${ents.filter((x) => x.exposed).length} of ${ents.length} exposed`;
+  $("#entcount").textContent = `${list.length} shown · ${ents.filter((x) => x.exposed).length} of ${ents.length} exposed · ${ents.filter((x) => x.protected).length} protected`;
   $("#entities").innerHTML = list.slice(0, 500).map((x) => `<tr>
-    <td><input type="checkbox" class="toggle" data-id="${esc(x.entity_id)}" ${x.exposed ? "checked" : ""} aria-label="Expose ${esc(x.name)}"></td>
+    <td><input type="checkbox" class="toggle" data-id="${esc(x.entity_id)}" ${x.exposed ? "checked" : ""} ${x.protected ? "disabled" : ""} aria-label="Expose ${esc(x.name)}"></td>
+    <td><input type="checkbox" class="toggle" data-prot="${esc(x.entity_id)}" ${x.protected ? "checked" : ""} aria-label="Protect ${esc(x.name)}"></td>
     <td><div class="ent-name">${esc(x.name)}</div><div class="ent-id">${esc(x.entity_id)}</div></td>
-    <td class="muted">${esc(x.state)}</td></tr>`).join("") + (list.length > 500 ? `<tr><td colspan="3" class="muted">Showing 500 of ${list.length}. Narrow the search.</td></tr>` : "");
+    <td class="muted">${esc(x.state)}</td></tr>`).join("") + (list.length > 500 ? `<tr><td colspan="4" class="muted">Showing 500 of ${list.length}. Narrow the search.</td></tr>` : "");
 }
 async function setExposed(ids, exposed) {
   await api("api/expose", { entity_ids: ids, exposed });
@@ -282,16 +281,25 @@ loaders.devices = async () => {
     const cur = $("#entdomain").value;
     $("#entdomain").innerHTML = `<option value="">All types</option>` + domains.map((d) => `<option ${d === cur ? "selected" : ""}>${esc(d)}</option>`).join("");
     renderEnts();
-  } catch (e) { $("#entities").innerHTML = `<tr><td colspan="3" class="bad">${esc(e.message)}</td></tr>`; }
+  } catch (e) { $("#entities").innerHTML = `<tr><td colspan="4" class="bad">${esc(e.message)}</td></tr>`; }
 };
 ["#entsearch", "#entdomain", "#entfilter"].forEach((s) => $(s).addEventListener("input", renderEnts));
 $("#entities").addEventListener("change", async (e) => {
+  const pid = e.target.dataset.prot;
+  if (pid) {
+    try {
+      await api("api/protect", { entity_ids: [pid], protected: e.target.checked });
+      ents.forEach((x) => { if (x.entity_id === pid) { x.protected = e.target.checked; x.exposed = !e.target.checked; } });
+      renderEnts();
+    } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+    return;
+  }
   const id = e.target.dataset.id; if (!id) return;
   try { await setExposed([id], e.target.checked); } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
 });
 for (const [btn, val] of [["#exposeall", true], ["#hideall", false]]) {
   $(btn).onclick = async () => {
-    const ids = shown().filter((x) => x.exposed !== val).map((x) => x.entity_id);
+    const ids = shown().filter((x) => x.exposed !== val && !x.protected).map((x) => x.entity_id);
     if (!ids.length) return toast("Nothing to change");
     try { await setExposed(ids, val); toast(`${val ? "Exposed" : "Hid"} ${ids.length} entities`); } catch (err) { toast(err.message); }
   };

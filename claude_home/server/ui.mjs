@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { supervisor, haWs, readOptions, writeOptions } from "./ha.mjs";
-import { normalize, SCOPES } from "./admin.mjs";
+import { normalize } from "./admin.mjs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -17,7 +17,7 @@ const EDITABLE = {
   request_timeout: (v) => Math.min(600, Math.max(10, Math.round(Number(v) || 120))),
   extra_instructions: (v) => String(v ?? ""),
 };
-const PASSCODES = Object.values(SCOPES).map((s) => s.passcode);
+
 
 const env = process.env;
 const html = readFileSync(new URL("./ui.html", import.meta.url));
@@ -43,7 +43,7 @@ async function mcpTools(mcpConfigPath) {
   return value;
 }
 
-export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, log }) {
+export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, log, admin }) {
   const allowAny = env.UI_ALLOW_ANY === "1"; // local development only
 
   async function status() {
@@ -68,6 +68,7 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
       { type: "homeassistant/expose_entity/list" },
     ]);
     const exp = exposed.exposed_entities || {};
+    const prot = new Set(admin.protectedList());
     return states
       .map((st) => ({
         entity_id: st.entity_id,
@@ -75,6 +76,7 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
         domain: st.entity_id.split(".")[0],
         state: st.state,
         exposed: exp[st.entity_id]?.conversation === true,
+        protected: prot.has(st.entity_id),
       }))
       .sort((a, b) => a.entity_id.localeCompare(b.entity_id));
   }
@@ -83,12 +85,8 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
     const next = { ...readOptions(cfg.optionsFile) };
     for (const [k, clean] of Object.entries(EDITABLE)) if (k in changes) next[k] = clean(changes[k]);
     // Empty passcode = feature off.
-    for (const k of PASSCODES) if (k in changes) next[k] = String(changes[k] ?? "").trim();
-    for (const k of PASSCODES) {
-      if (next[k] && normalize(next[k]).trim().replace(/ /g, "").length < 4) throw new Error("A passcode needs at least 4 letters or digits.");
-    }
-    const [a, b] = PASSCODES.map((k) => next[k] && normalize(next[k]));
-    if (a && b && (a.includes(b) || b.includes(a))) throw new Error("The two passcodes must be different, and one must not contain the other.");
+    if ("passcode" in changes) next.passcode = String(changes.passcode ?? "").trim();
+    if (next.passcode && normalize(next.passcode).trim().replace(/ /g, "").length < 4) throw new Error("The passcode needs at least 4 letters or digits.");
     await writeOptions(cfg.optionsFile, next);
   }
 
@@ -99,7 +97,7 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
       const o = readOptions(cfg.optionsFile);
       return {
         ...Object.fromEntries(Object.keys(EDITABLE).map((k) => [k, o[k] ?? ""])),
-        ...Object.fromEntries(PASSCODES.map((k) => [k, o[k] ?? ""])),
+        passcode: o.passcode ?? "",
       };
     },
     "POST /api/options": async (req) => { await saveOptions((await readJson(req)) || {}); return { ok: true }; },
@@ -107,8 +105,16 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
     "POST /api/expose": async (req) => {
       const { entity_ids, exposed } = (await readJson(req)) || {};
       if (!Array.isArray(entity_ids) || !entity_ids.length) throw new Error("entity_ids required");
+      if (exposed && entity_ids.some((id) => admin.protectedList().includes(id))) throw new Error("Protected entities stay hidden from Assist. Unprotect them first.");
       await haWs([{ type: "homeassistant/expose_entity", assistants: ["conversation"], entity_ids, should_expose: !!exposed }]);
       toolsCache.at = 0; // exposed scripts change the tool list
+      return { ok: true };
+    },
+    "POST /api/protect": async (req) => {
+      const { entity_ids, protected: on } = (await readJson(req)) || {};
+      if (!Array.isArray(entity_ids) || !entity_ids.length) throw new Error("entity_ids required");
+      await admin.setProtected(entity_ids, !!on);
+      toolsCache.at = 0;
       return { ok: true };
     },
     "POST /api/chat": async (req) => {
