@@ -1,3 +1,10 @@
 node_modules/
 __pycache__/
 .pytest_cache/
+# local secrets: never commit
+.env
+.env.*
+*.token
+options.json
+mcp.json
+api_token
