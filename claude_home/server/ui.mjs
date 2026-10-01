@@ -1,10 +1,10 @@
-// Ingress web UI: status, test chat, settings, exposed entities, remote setup.
+// Ingress web UI: status, settings, exposed and protected entities.
 // Only Home Assistant's ingress proxy may reach it; HA has already authenticated the user.
 import http from "node:http";
 import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { supervisor, haWs, readOptions, writeOptions } from "./ha.mjs";
+import { haWs, readOptions, writeOptions } from "./ha.mjs";
 import { normalize } from "./admin.mjs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -43,22 +43,18 @@ async function mcpTools(mcpConfigPath) {
   return value;
 }
 
-export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, log, admin }) {
+export function startUi({ cfg, settings, sessions, readJson, send, log, admin }) {
   const allowAny = env.UI_ALLOW_ANY === "1"; // local development only
 
   async function status() {
     claudeVersion ??= await promisify(execFile)(cfg.claudeBin, ["--version"])
       .then(({ stdout }) => stdout.trim()).catch((e) => `unknown (${e.message})`);
     const s = settings();
-    let mappedPort = null;
-    try { mappedPort = (await supervisor("/addons/self/info")).network?.["8099/tcp"] ?? null; } catch {}
     return {
       claudeVersion,
       models: { main: s.mainModel, effort: s.effort || "default" },
       sessions: sessions.size,
-      recent,
       mcp: await mcpTools(cfg.mcpConfig),
-      remote: { token: cfg.apiToken, mappedPort },
     };
   }
 
@@ -116,13 +112,6 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
       await admin.setProtected(entity_ids, !!on);
       toolsCache.at = 0;
       return { ok: true };
-    },
-    "POST /api/chat": async (req) => {
-      const { text, conversation_id } = (await readJson(req)) || {};
-      if (!text) throw new Error("text required");
-      const id = conversation_id || crypto.randomUUID();
-      const r = await ask(`ui:${id}`, text);
-      return { reply: r.text, conversation_id: id, ms: r.ms, cost: r.cost };
     },
   };
 

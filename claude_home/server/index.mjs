@@ -69,7 +69,6 @@ function mcpConfig(extra) {
 // ---- sessions: external conversation id -> Claude Code session id ----------
 const sessions = new Map(); // key -> { sid, last }
 const queues = new Map(); // key -> promise chain (serialize turns per conversation)
-const recent = []; // last requests, newest first, for the web UI
 
 setInterval(() => {
   const now = Date.now(), { idleMs } = settings();
@@ -129,32 +128,21 @@ async function ask(key, text) {
   const job = prev.catch(() => {}).then(async () => {
     const existing = sessions.get(key);
     const fresh = !existing || Date.now() - existing.last > settings().idleMs;
-    const entry = { at: new Date().toISOString(), source: key.split(":")[0], model: settings().mainModel, text, reply: null, tools: [], ms: null, error: null };
-    recent.unshift(entry);
-    recent.length = Math.min(recent.length, 50);
-    const t0 = Date.now();
-
     // If this message confirms a pending change with its passcode, the server applies it here.
     const prompt = await admin.beforeTurn(key, text);
 
     const turn = admin.grantFor(key);
     let r;
     try {
-      try {
-        r = await runClaude(prompt, fresh ? undefined : existing.sid, turn.servers);
-      } catch (e) {
-        if (fresh) throw e;
-        log(`resume failed for ${key}, starting fresh: ${e.message}`);
-        r = await runClaude(prompt, undefined, turn.servers);
-      }
+      r = await runClaude(prompt, fresh ? undefined : existing.sid, turn.servers);
     } catch (e) {
-      Object.assign(entry, { error: e.message, ms: Date.now() - t0 });
-      throw e;
+      if (fresh) throw e;
+      log(`resume failed for ${key}, starting fresh: ${e.message}`);
+      r = await runClaude(prompt, undefined, turn.servers);
     } finally {
       turn.release();
     }
     r.text = admin.afterTurn(key, turn.grant) || r.text;
-    Object.assign(entry, { reply: r.text, tools: r.tools, ms: Date.now() - t0 });
     sessions.set(key, { sid: r.sid, last: Date.now() });
     log(`[${key}] ${settings().mainModel} ${r.ms ?? "?"}ms tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;
@@ -243,7 +231,7 @@ http
   })
   .listen(cfg.port, () => log(`claude-home API listening on :${cfg.port}`));
 
-startUi({ cfg, settings, ask, recent, sessions, readJson, send, log, admin });
+startUi({ cfg, settings, sessions, readJson, send, log, admin });
 
 // 0.5.0 merged the two passcodes into one.
 {

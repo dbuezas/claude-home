@@ -56,13 +56,6 @@
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .row > .grow { flex: 1; min-width: 160px; }
   .hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
-  .chatlog { display: flex; flex-direction: column; gap: 10px; min-height: 240px; max-height: 55vh; overflow-y: auto; padding: 4px 0 12px; }
-  .msg { max-width: 85%; padding: 9px 12px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
-  .msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-text); }
-  .msg.bot { align-self: flex-start; background: var(--chip); }
-  .msg .meta { display: block; font-size: 12px; opacity: .7; margin-top: 4px; }
-  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-  pre { background: var(--chip); padding: 12px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 8px 0; }
   .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; display: none; max-width: calc(100% - 32px); }
   .toggle { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
   .ent-name { font-weight: 500; } .ent-id { font-size: 12px; color: var(--muted); word-break: break-all; }
@@ -73,10 +66,8 @@
   <h1>Claude Home</h1>
   <nav id="tabs">
     <button data-tab="status" class="on">Status</button>
-    <button data-tab="chat">Chat</button>
     <button data-tab="settings">Settings</button>
     <button data-tab="devices">Devices</button>
-    <button data-tab="remote">Remote</button>
   </nav>
 </header>
 <main>
@@ -86,25 +77,6 @@
       <h2>Tools Claude can use</h2>
       <div class="hint" style="margin:0 0 10px">Scripts (orange outline) run as tools. Hide any you don't want Claude to start on the Devices tab.</div>
       <div class="chips" id="tools"></div>
-    </div>
-    <div class="card">
-      <h2>Recent requests</h2>
-      <div class="table-wrap"><table><thead><tr><th>When</th><th>From</th><th>Request</th><th>Reply</th><th>Tools used</th><th>Time</th></tr></thead><tbody id="recent"></tbody></table></div>
-    </div>
-  </section>
-
-  <section id="chat">
-    <div class="card">
-      <div class="row" style="justify-content:space-between;margin-bottom:8px">
-        <h2 style="margin:0">Test chat</h2>
-        <button class="secondary" id="newchat">New conversation</button>
-      </div>
-      <div class="hint" style="margin:0 0 8px">Same agent as Assist. Commands here really control your devices.</div>
-      <div class="chatlog" id="chatlog"></div>
-      <form class="row" id="chatform">
-        <input class="grow" type="text" id="chatinput" placeholder="Ask about or control your home…" autocomplete="off">
-        <button class="primary" id="chatsend">Send</button>
-      </form>
     </div>
   </section>
 
@@ -152,12 +124,6 @@
     </div>
   </section>
 
-  <section id="remote">
-    <div class="card">
-      <h2>Use from Claude Code on another computer</h2>
-      <div id="remotebody" class="muted">Loading…</div>
-    </div>
-  </section>
 </main>
 <div class="toast" id="toast"></div>
 
@@ -171,7 +137,6 @@ async function api(path, body) {
   return data;
 }
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => (t.style.display = "none"), 3500); }
-const ago = (iso) => { const s = Math.round((Date.now() - new Date(iso)) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : new Date(iso).toLocaleString(); };
 
 // ---- tabs
 const loaders = {};
@@ -184,10 +149,9 @@ $("#tabs").addEventListener("click", (e) => {
 });
 
 // ---- status
-let statusCache;
 loaders.status = async () => {
   try {
-    const s = statusCache = await api("api/status");
+    const s = await api("api/status");
     $("#stats").innerHTML = [
       ["Home Assistant tools", s.mcp.ok ? `<span class="ok">Connected</span> · ${s.mcp.tools.length} tools` : `<span class="bad">Not reachable</span>`],
       ["Model", `${esc(s.models.main)} · effort ${esc(s.models.effort)}`],
@@ -197,32 +161,7 @@ loaders.status = async () => {
     $("#tools").innerHTML = s.mcp.ok
       ? s.mcp.tools.map((t) => `<span class="chip ${t.name.includes("script") ? "script" : ""}" title="${esc(t.description)}">${esc(t.name)}</span>`).join("")
       : `<span class="bad">${esc(s.mcp.error)}</span>`;
-    $("#recent").innerHTML = s.recent.length
-      ? s.recent.map((r) => `<tr><td class="muted">${ago(r.at)}</td><td>${esc(r.source)}<div class="ent-id">${esc(r.model || "")}</div></td><td>${esc(r.text)}</td><td>${r.error ? `<span class="bad">${esc(r.error)}</span>` : r.reply === null ? `<span class="muted">working…</span>` : esc(r.reply)}</td><td>${(r.tools || []).map((t) => `<span class="chip">${esc(t)}</span>`).join(" ") || '<span class="muted">none</span>'}</td><td class="muted">${r.ms ? (r.ms / 1000).toFixed(1) + "s" : ""}</td></tr>`).join("")
-      : `<tr><td colspan="6" class="muted">No requests yet.</td></tr>`;
   } catch (e) { $("#stats").innerHTML = `<div class="bad">${esc(e.message)}</div>`; }
-};
-
-// ---- chat
-let chatId = null;
-function bubble(cls, text, meta) {
-  const d = document.createElement("div"); d.className = `msg ${cls}`; d.textContent = text;
-  if (meta) { const m = document.createElement("span"); m.className = "meta"; m.textContent = meta; d.appendChild(m); }
-  $("#chatlog").appendChild(d); $("#chatlog").scrollTop = 1e9; return d;
-}
-$("#newchat").onclick = () => { chatId = null; $("#chatlog").innerHTML = ""; $("#chatinput").focus(); };
-$("#chatform").onsubmit = async (e) => {
-  e.preventDefault();
-  const text = $("#chatinput").value.trim(); if (!text) return;
-  $("#chatinput").value = ""; $("#chatsend").disabled = true;
-  bubble("user", text);
-  const wait = bubble("bot", "…");
-  try {
-    const r = await api("api/chat", { text, conversation_id: chatId });
-    chatId = r.conversation_id;
-    wait.remove(); bubble("bot", r.reply || "(empty reply)", `${((r.ms || 0) / 1000).toFixed(1)}s`);
-  } catch (err) { wait.remove(); bubble("bot", `Error: ${err.message}`); }
-  $("#chatsend").disabled = false; $("#chatinput").focus();
 };
 
 // ---- settings
@@ -304,23 +243,6 @@ for (const [btn, val] of [["#exposeall", true], ["#hideall", false]]) {
     try { await setExposed(ids, val); toast(`${val ? "Exposed" : "Hid"} ${ids.length} entities`); } catch (err) { toast(err.message); }
   };
 }
-
-// ---- remote
-loaders.remote = async () => {
-  try {
-    const s = statusCache || (await api("api/status"));
-    const port = s.remote.mappedPort;
-    const host = `homeassistant.local:${port || 8099}`;
-    const cmd = `claude mcp add --transport http home http://${host}/mcp \\\n  --header "Authorization: Bearer ${s.remote.token}"`;
-    $("#remotebody").innerHTML = `
-      <p>${port ? `<span class="ok">Port ${port} is open on your network.</span>` : `<span class="warn">The port is closed.</span> Open it in the add-on's Configuration tab → Network: set <code>8099</code>, then save and restart the add-on.`}</p>
-      <p>Then run this on the other computer:</p>
-      <pre id="cmd">${esc(cmd)}</pre>
-      <div class="row"><button class="secondary" id="copycmd">Copy command</button></div>
-      <p class="hint">The command contains the API token. Keep it private. Away from home, use the Tailscale add-on. Never forward this port to the internet.</p>`;
-    $("#copycmd").onclick = async () => { try { await navigator.clipboard.writeText(cmd); toast("Copied"); } catch { toast("Copy blocked: select the text instead"); } };
-  } catch (e) { $("#remotebody").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
-};
 
 let start = "status";
 try { start = localStorage.getItem("tab") || "status"; } catch {}
