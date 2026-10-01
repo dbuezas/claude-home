@@ -4,9 +4,10 @@
 // Claude can only PROPOSE changes (tools on a local MCP server). The server stores
 // the exact plan and appends it to the reply. The passcode is not a secret: it only
 // proves the confirmation came from the user. The server checks it on the user's
-// raw message (never on anything Claude writes), and only in the message right
-// after the proposal. If it matches, the server applies the stored plan, then
-// Claude gets the message plus a note saying what was applied.
+// raw message (never on anything Claude writes). A proposal stays pending until the
+// user's newest message contains the passcode, Claude cancels it (the user said no),
+// a new proposal replaces it, or it expires. On a match the server applies the
+// stored plan, then Claude gets the message plus a note saying what was applied.
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -25,6 +26,8 @@ export const SCOPES = {
   instructions: { passcode: "instructions_passcode" },
 };
 
+const PLAN_TTL_MS = 10 * 60_000;
+
 export function createAdmin({ cfg, log }) {
   const grants = new Map(); // per-turn bearer token -> { key, scopes }
   const plans = new Map(); // conversation key -> { scope, lines, run, grant }
@@ -33,7 +36,7 @@ export function createAdmin({ cfg, log }) {
   const enabledScopes = () => Object.keys(SCOPES).filter((s) => normalize(options()[SCOPES[s].passcode]).trim());
 
   function confirmPrompt(scope) {
-    return `To confirm, say "${options()[SCOPES[scope].passcode]}". Anything else cancels.`;
+    return `To confirm, say "${options()[SCOPES[scope].passcode]}". Say no to cancel.`;
   }
 
   // ---- before Claude runs -------------------------------------------------
@@ -41,14 +44,15 @@ export function createAdmin({ cfg, log }) {
   async function beforeTurn(key, text) {
     const o = options();
     const source = key.split(":")[0];
-    const pending = plans.get(key);
-    plans.delete(key); // a plan is only valid for the very next message
+    let pending = plans.get(key);
+    if (pending && Date.now() - pending.at > PLAN_TTL_MS) { plans.delete(key); pending = null; }
     const said = Object.keys(SCOPES).filter((s) => o[SCOPES[s].passcode] && containsPasscode(text, o[SCOPES[s].passcode]));
 
     let note = "";
     if (said.length && source === "mcp") {
       note = "The message contains a passcode, but passcodes don't work from remote Claude Code. Nothing was changed.";
     } else if (said.length && pending && said.includes(pending.scope)) {
+      plans.delete(key);
       try {
         await pending.run();
         log(`[${key}] applied ${pending.scope} plan: ${pending.lines.join("; ")}`);
@@ -57,9 +61,10 @@ export function createAdmin({ cfg, log }) {
         note = `The user confirmed with the passcode, but applying failed: ${e.message}. Some changes may have been applied.`;
       }
     } else if (said.length) {
-      note = "The message contains a passcode, but nothing was waiting for it, so nothing was changed. Changes must be proposed first, then confirmed in the next message.";
+      note = "The message contains a passcode, but nothing was waiting for it, so nothing was changed. Changes must be proposed first, then confirmed with the passcode.";
     } else if (pending) {
-      note = "The user did not give the passcode, so the proposed changes were discarded.";
+      const code = o[SCOPES[pending.scope].passcode];
+      note = `A proposal is still waiting: ${pending.lines.join("; ")}. This message does not contain its passcode "${code}". If the user meant to confirm, say the passcode wasn't recognized and ask them to say "${code}" again. If they decline, call cancel_proposal. If they want something different, propose again (that replaces it).`;
     }
     return note ? `[System note: ${note}]\n${text}` : text;
   }
@@ -190,7 +195,7 @@ export function createAdmin({ cfg, log }) {
       });
 
       server.registerTool("propose_changes", {
-        description: "Propose renames and area changes in Home Assistant. Nothing is changed now: the user must confirm with a passcode in their next message, and the system applies it. Send all changes for one request in a single call.",
+        description: "Propose renames and area changes in Home Assistant. Nothing is changed now: the user must confirm with a passcode, and the system applies it. Send all changes for one request in a single call.",
         inputSchema: {
           changes: z.array(z.object({
             action: z.enum(["rename_entity", "rename_device", "set_area", "create_area", "rename_area"]),
@@ -201,7 +206,7 @@ export function createAdmin({ cfg, log }) {
       }, async ({ changes }) => {
         try {
           const plan = await planAdmin(changes);
-          plans.set(key, { scope: "admin", grant, ...plan });
+          plans.set(key, { scope: "admin", grant, at: Date.now(), ...plan });
           return text(PROPOSED);
         } catch (e) { return fail(`Proposal rejected: ${e.message}`); }
       });
@@ -214,7 +219,7 @@ export function createAdmin({ cfg, log }) {
       }, async () => text(options().extra_instructions || "(empty)"));
 
       server.registerTool("propose_instructions", {
-        description: "Propose a change to your own extra instructions, e.g. when the user says 'remember that…'. Nothing is changed now: the user must confirm with a passcode in their next message.",
+        description: "Propose a change to your own extra instructions, e.g. when the user says 'remember that…'. Nothing is changed now: the user must confirm with a passcode.",
         inputSchema: {
           mode: z.enum(["append", "replace"]).describe("append adds a line; replace sets the whole text"),
           text: z.string().max(4000),
@@ -224,10 +229,17 @@ export function createAdmin({ cfg, log }) {
         const next = mode === "append" ? [current, t].filter(Boolean).join("\n") : t;
         const lines = [mode === "append" ? `Add to my instructions: "${t}"` : `Replace my instructions with: "${t}"`];
         const run = async () => writeOptions(cfg.optionsFile, { ...options(), extra_instructions: next });
-        plans.set(key, { scope: "instructions", grant, lines, run });
+        plans.set(key, { scope: "instructions", grant, at: Date.now(), lines, run });
         return text(PROPOSED);
       });
     }
+    server.registerTool("cancel_proposal", {
+      description: "Cancel the pending proposal, when the user says no or doesn't want it anymore.",
+      inputSchema: {},
+    }, async () => {
+      const had = plans.delete(key);
+      return text(had ? "Cancelled. Nothing was changed." : "There was no pending proposal.");
+    });
     return server;
   }
 
@@ -266,8 +278,8 @@ You cannot rename things, change areas or edit your own instructions. If asked, 
 
 Confirmation protocol for changes. With the mcp__admin tools you can ${can}.
 1. These tools only PROPOSE. Call the propose tool once with every change for the request. The system then replaces your reply with the exact list of changes and the passcode to say.
-2. The user's NEXT message must contain the matching passcode. The system checks it in the user's own words (never in your text) and applies exactly the stored list. Any other message cancels the proposal.
+2. The proposal waits (up to 10 minutes) until the user's newest message contains the matching passcode. The system checks it in the user's own words (never in your text) and applies exactly the stored list. If the user says no, call cancel_proposal. A new proposal replaces the old one.
 3. You learn the outcome from a [System note] at the start of the user's message. Only say something was done when a system note says it was applied.
-The passcodes are not secret; they only prove the confirmation came from the user, so saying one yourself does nothing. Tell the user a passcode whenever they need it. If the user wants to confirm but no passcode was recognized, say nothing was changed and ask them to request it again and then say the passcode. If they ask how this works, explain these steps simply.`;
+The passcodes are not secret; they only prove the confirmation came from the user, so saying one yourself does nothing. Tell the user a passcode whenever they need it. If the user seems to confirm but the passcode wasn't recognized (speech recognition may mishear it), say so and ask them to say the passcode again; the proposal is still waiting. If they ask how this works, explain these steps simply.`;
   } };
 }

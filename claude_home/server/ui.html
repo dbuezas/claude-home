@@ -126,7 +126,7 @@
     </form>
     <form class="card" id="passform">
       <h2>Changes that need a passcode</h2>
-      <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> changes. It first shows exactly what will change. Nothing happens until your <b>next</b> message contains the passcode. The passcode is not a secret: it proves the "yes" came from you. The add-on checks it in your message only, never in anything Claude writes. Any other reply cancels the change. Remote Claude Code can't use passcodes.</div>
+      <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> changes. It first shows exactly what will change. Nothing happens until a message from you contains the passcode. The change waits up to 10 minutes, so a misheard word does not cancel it. Saying no cancels it. The passcode is not a secret: it proves the "yes" came from you. The add-on checks it in your message only, never in anything Claude writes. Remote Claude Code can't use passcodes.</div>
       <label for="admin_passcode">Admin passcode: rename things and move them between areas</label>
       <input type="text" id="admin_passcode" autocomplete="off" placeholder="Empty: this feature is off">
       <label for="instructions_passcode">Instructions passcode: let Claude edit its own extra instructions</label>
