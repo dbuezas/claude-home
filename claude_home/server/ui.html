@@ -129,12 +129,8 @@
       <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> changes. It first shows exactly what will change. Nothing happens until your <b>next</b> message contains the passcode. The passcode is not a secret: it proves the "yes" came from you. The add-on checks it in your message only, never in anything Claude writes. Any other reply cancels the change. Remote Claude Code can't use passcodes.</div>
       <label for="admin_passcode">Admin passcode: rename things and move them between areas</label>
       <input type="text" id="admin_passcode" autocomplete="off" placeholder="Empty: this feature is off">
-      <label for="admin_hint">Reminder question (Claude says it when asking for the admin passcode)</label>
-      <input type="text" id="admin_hint" placeholder="E.g. What did grandma always bake?">
       <label for="instructions_passcode">Instructions passcode: let Claude edit its own extra instructions</label>
       <input type="text" id="instructions_passcode" autocomplete="off" placeholder="Empty: this feature is off">
-      <label for="instructions_hint">Reminder question for the instructions passcode</label>
-      <input type="text" id="instructions_hint">
       <div class="hint">Use words that are easy to say and that speech recognition gets right, e.g. "purple pancake". Case and punctuation don't matter.</div>
       <div class="row" style="margin-top:14px"><button class="primary" id="savepass">Save</button></div>
     </form>
@@ -232,7 +228,7 @@ $("#chatform").onsubmit = async (e) => {
 };
 
 // ---- settings
-const PASS = ["admin_passcode", "instructions_passcode"], HINTS = ["admin_hint", "instructions_hint"];
+const PASS = ["admin_passcode", "instructions_passcode"];
 const FIELDS = ["main_model", "effort", "session_idle_minutes", "request_timeout", "extra_instructions"];
 loaders.settings = async () => {
   try {
@@ -242,7 +238,7 @@ loaders.settings = async () => {
       $("#" + k).innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
     }
     FIELDS.forEach((k) => ($("#" + k).value = o[k] || (k === "effort" ? "default" : "")));
-    [...PASS, ...HINTS].forEach((k) => ($("#" + k).value = o[k] || ""));
+    PASS.forEach((k) => ($("#" + k).value = o[k] || ""));
   }
   catch (e) { toast(e.message); }
 };
@@ -254,7 +250,7 @@ $("#settingsform").onsubmit = async (e) => {
 };
 $("#passform").onsubmit = async (e) => {
   e.preventDefault(); $("#savepass").disabled = true;
-  try { await api("api/options", Object.fromEntries([...PASS, ...HINTS].map((k) => [k, $("#" + k).value]))); toast("Saved"); await loaders.settings(); }
+  try { await api("api/options", Object.fromEntries(PASS.map((k) => [k, $("#" + k).value]))); toast("Saved"); await loaders.settings(); }
   catch (err) { toast(`Not saved: ${err.message}`); }
   $("#savepass").disabled = false;
 };

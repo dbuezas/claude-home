@@ -44,7 +44,8 @@ export function readOptions(file) {
 // (the Supervisor only rewrites that file on restart, and we read it live).
 export async function writeOptions(file, options) {
   const next = Object.fromEntries(Object.entries(options).filter(([, v]) => v !== "" && v != null));
-  delete next.planner_model; // removed in 0.3.0; Supervisor rejects unknown options
+  // Removed options; the Supervisor rejects unknown ones.
+  for (const k of ["planner_model", "admin_hint", "instructions_hint"]) delete next[k];
   await supervisor("/addons/self/options", { method: "POST", body: JSON.stringify({ options: next }) });
   writeFileSync(file, JSON.stringify(next));
 }

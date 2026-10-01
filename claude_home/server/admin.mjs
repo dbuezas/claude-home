@@ -21,8 +21,8 @@ export const normalize = (s) =>
 export const containsPasscode = (text, code) => normalize(code).trim() !== "" && normalize(text).includes(normalize(code));
 
 export const SCOPES = {
-  admin: { passcode: "admin_passcode", hint: "admin_hint", label: "admin passcode" },
-  instructions: { passcode: "instructions_passcode", hint: "instructions_hint", label: "instructions passcode" },
+  admin: { passcode: "admin_passcode" },
+  instructions: { passcode: "instructions_passcode" },
 };
 
 export function createAdmin({ cfg, log }) {
@@ -33,9 +33,7 @@ export function createAdmin({ cfg, log }) {
   const enabledScopes = () => Object.keys(SCOPES).filter((s) => normalize(options()[SCOPES[s].passcode]).trim());
 
   function confirmPrompt(scope) {
-    const o = options(), { hint, label } = SCOPES[scope];
-    const h = String(o[hint] || "").trim();
-    return `To confirm, say your ${label}.${h ? ` Hint: ${/[.?!]$/.test(h) ? h : h + "."}` : ""} Anything else cancels.`;
+    return `To confirm, say "${options()[SCOPES[scope].passcode]}". Anything else cancels.`;
   }
 
   // ---- before Claude runs -------------------------------------------------
@@ -259,16 +257,17 @@ export function createAdmin({ cfg, log }) {
       return `
 You cannot rename things, change areas or edit your own instructions. If asked, say the user can turn this on by setting passcodes on the Claude Home page (Settings).`;
     }
+    const o = options();
     const can = [
-      scopes.includes("admin") && "rename entities, devices and areas, create areas and move things between areas (admin passcode; look up current names with find_names first)",
-      scopes.includes("instructions") && "edit your own extra instructions, e.g. when the user says \"remember that…\" or \"forget that…\" (instructions passcode)",
+      scopes.includes("admin") && `rename entities, devices and areas, create areas and move things between areas (passcode "${o.admin_passcode}"; look up current names with find_names first)`,
+      scopes.includes("instructions") && `edit your own extra instructions, e.g. when the user says "remember that…" or "forget that…" (passcode "${o.instructions_passcode}")`,
     ].filter(Boolean).join("; and ");
     return `
 
 Confirmation protocol for changes. With the mcp__admin tools you can ${can}.
-1. These tools only PROPOSE. Call the propose tool once with every change for the request. Then reply with one short sentence about what you propose. The system appends the exact list of changes and asks for the passcode, with the user's reminder question.
+1. These tools only PROPOSE. Call the propose tool once with every change for the request. Then reply with one short sentence about what you propose. The system appends the exact list of changes and asks the user to say the passcode.
 2. The user's NEXT message must contain the matching passcode. The system checks it in the user's own words (never in your text) and applies exactly the stored list. Any other message cancels the proposal.
 3. You learn the outcome from a [System note] at the start of the user's message. Only say something was done when a system note says it was applied.
-The passcode is not a secret; it only proves the confirmation came from the user. You don't know it and can't confirm for the user. Don't ask for it yourself. If the user wants to confirm but no passcode was recognized, say nothing was changed and ask them to request it again and then say the passcode. If they ask how this works, explain these steps simply.`;
+The passcodes are not secret; they only prove the confirmation came from the user, so saying one yourself does nothing. Tell the user a passcode whenever they need it. If the user wants to confirm but no passcode was recognized, say nothing was changed and ask them to request it again and then say the passcode. If they ask how this works, explain these steps simply.`;
   } };
 }

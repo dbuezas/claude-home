@@ -16,8 +16,6 @@ const EDITABLE = {
   session_idle_minutes: (v) => Math.min(1440, Math.max(1, Math.round(Number(v) || 15))),
   request_timeout: (v) => Math.min(600, Math.max(10, Math.round(Number(v) || 120))),
   extra_instructions: (v) => String(v ?? ""),
-  admin_hint: (v) => String(v ?? "").trim(),
-  instructions_hint: (v) => String(v ?? "").trim(),
 };
 const PASSCODES = Object.values(SCOPES).map((s) => s.passcode);
 
