@@ -1,7 +1,8 @@
-// Passcode-gated changes and protected entities.
+// Read access to every entity, plus passcode-gated changes and protected entities.
 //
-// Claude can only PROPOSE (tools on a local MCP server): renames and areas, its own
-// extra instructions, the protected list, and any interaction with a protected entity.
+// Claude can read any entity's state freely (find_entities). Everything else here it
+// can only PROPOSE: renames and areas, its own extra instructions, the protected list,
+// and controlling a protected entity.
 // The server stores the exact plan and replaces Claude's reply with it. The passcode
 // is not a secret: it only proves the confirmation came from the user. The server
 // checks it on the user's raw message (never on anything Claude writes). A proposal
@@ -10,8 +11,8 @@
 // server applies the stored plan, then Claude gets the message plus a note with the result.
 //
 // Protected entities are kept un-exposed from Assist, so Home Assistant's own MCP
-// tools can't see or touch them (not even through area-wide commands). The only way
-// to read or control them is a proposal confirmed with the passcode.
+// tools can't control them (not even through area-wide commands). Claude can still
+// read them with find_entities; controlling them needs a proposal confirmed with the passcode.
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -95,7 +96,6 @@ export function createAdmin({ cfg, log }) {
 
   // ---- while Claude runs: per-turn MCP access ------------------------------
   function grantFor(key) {
-    if (!enabled()) return { servers: {}, release: () => {}, grant: null };
     const grant = randomBytes(24).toString("hex");
     grants.set(grant, key);
     return {
@@ -184,7 +184,7 @@ export function createAdmin({ cfg, log }) {
           const isProtected = protectedList().includes(c.target);
           if (c.action === "protect" && isProtected) throw new Error(`${c.target} is already protected`);
           if (c.action === "unprotect" && !isProtected) throw new Error(`${c.target} is not protected`);
-          lines.push(c.action === "protect" ? `Protect ${label(c.target)}: from then on, any use needs the passcode` : `Unprotect ${label(c.target)}: you get normal access to it again`);
+          lines.push(c.action === "protect" ? `Protect ${label(c.target)}: from then on, controlling it needs the passcode` : `Unprotect ${label(c.target)}: you get normal access to it again`);
           (c.action === "protect" ? protect : unprotect).push(c.target);
           break;
         }
@@ -216,15 +216,6 @@ export function createAdmin({ cfg, log }) {
       if (!st) throw new Error(`Unknown entity ${a.entity_id}`);
       if (!protectedList().includes(a.entity_id)) throw new Error(`${a.entity_id} is not protected; use the normal Home Assistant tools for it`);
       const name = `${st.attributes.friendly_name || a.entity_id} (${a.entity_id})`;
-      if (a.service === "read") {
-        lines.push(`Read the state of ${name}`);
-        steps.push(async () => {
-          const [all] = await haWs([{ type: "get_states" }]);
-          const now = all.find((s) => s.entity_id === a.entity_id);
-          return `${a.entity_id}: ${now?.state} ${JSON.stringify(now?.attributes || {}).slice(0, 1500)}`;
-        });
-        continue;
-      }
       const [domain, service] = a.service.includes(".") ? a.service.split(".", 2) : [a.entity_id.split(".")[0], a.service];
       if (!services[domain]?.[service]) throw new Error(`Unknown action ${domain}.${service}`);
       // A script's own service (script.<name>) takes fields directly and no target.
@@ -249,21 +240,35 @@ export function createAdmin({ cfg, log }) {
   function buildServer(key, grant) {
     const server = new McpServer({ name: "claude-home-admin", version: "0.5.0" });
 
-    server.registerTool("find_names", {
-      description: "Read-only. Search entities by id, name, area or device and show their current names, areas, devices and whether they are protected. Use it before proposing changes.",
-      inputSchema: { search: z.string().optional().describe("Words to match; empty lists everything"), limit: z.number().int().min(1).max(200).optional() },
-    }, async ({ search = "", limit = 80 }) => {
-      const { entities, devices, areas, stateName } = await registry();
+    server.registerTool("find_entities", {
+      description: "Read-only, always allowed. Search ALL Home Assistant entities (also ones not exposed to Assist, and protected ones) by id, name, area or device. Shows state, name, area, device and whether it is protected. Set details to also get attributes.",
+      inputSchema: {
+        search: z.string().optional().describe("Words to match; empty lists everything"),
+        limit: z.number().int().min(1).max(200).optional(),
+        details: z.boolean().optional().describe("include attributes (use with a narrow search)"),
+      },
+    }, async ({ search = "", limit = 80, details = false }) => {
+      const { entities, devices, areas, states, stateName } = await registry();
+      const stateOf = new Map(states.map((s) => [s.entity_id, s]));
       const prot = new Set(protectedList());
       const words = normalize(search).trim().split(" ").filter(Boolean);
       const areaName = (id) => areas.find((a) => a.area_id === id)?.name || "";
       const rows = entities.filter((e) => !e.disabled_by).map((e) => {
         const dev = devices.find((d) => d.id === e.device_id);
         const area = areaName(e.area_id || dev?.area_id);
-        return { line: `${e.entity_id} | "${stateName.get(e.entity_id) || e.name || e.original_name || ""}" | area: ${area || "-"} | device: ${deviceName(dev) || "-"}${dev ? ` (${dev.id})` : ""}${prot.has(e.entity_id) ? " | PROTECTED" : ""}`, hay: normalize(`${e.entity_id} ${stateName.get(e.entity_id)} ${area} ${deviceName(dev)}`) };
+        const st = stateOf.get(e.entity_id);
+        const unit = st?.attributes?.unit_of_measurement ? ` ${st.attributes.unit_of_measurement}` : "";
+        return { line: `${e.entity_id} | "${stateName.get(e.entity_id) || e.name || e.original_name || ""}" | state: ${st ? st.state + unit : "-"} | area: ${area || "-"} | device: ${deviceName(dev) || "-"}${dev ? ` (${dev.id})` : ""}${prot.has(e.entity_id) ? " | PROTECTED" : ""}${details && st ? ` | ${JSON.stringify(st.attributes).slice(0, 800)}` : ""}`, hay: normalize(`${e.entity_id} ${stateName.get(e.entity_id)} ${area} ${deviceName(dev)}`) };
       }).filter((r) => words.every((w) => r.hay.includes(` ${w}`)));
       return text(`${rows.length} matches${rows.length > limit ? `, showing ${limit}` : ""}:\n${rows.slice(0, limit).map((r) => r.line).join("\n")}\n\nAreas: ${areas.map((a) => a.name).join(", ")}`);
     });
+
+    server.registerTool("get_instructions", {
+      description: "Read-only. Show your current extra instructions (set by the user).",
+      inputSchema: {},
+    }, async () => text(options().extra_instructions || "(empty)"));
+
+    if (!enabled()) return server; // without a passcode there is nothing to propose
 
     server.registerTool("propose_changes", {
       description: "Propose renames, area changes, and adding/removing entities to/from the protected list. Nothing happens now: the user must confirm with the passcode. Send all changes for one request in a single call.",
@@ -279,7 +284,7 @@ export function createAdmin({ cfg, log }) {
     });
 
     server.registerTool("propose_use", {
-      description: "Propose reading or controlling PROTECTED entities (the only way to touch them). service is \"read\" to get the current state, or an action like \"turn_on\", \"light.turn_on\", \"script.send_gcode\". Nothing happens now: the user must confirm with the passcode.",
+      description: "Propose controlling PROTECTED entities (the only way to control them; reading is free with find_entities). service is an action like \"turn_on\", \"light.turn_on\", \"script.send_gcode\". Nothing happens now: the user must confirm with the passcode.",
       inputSchema: {
         actions: z.array(z.object({
           entity_id: z.string(),
@@ -290,11 +295,6 @@ export function createAdmin({ cfg, log }) {
     }, async ({ actions }) => {
       try { return store(key, grant, await planUse(actions)); } catch (e) { return fail(`Proposal rejected: ${e.message}`); }
     });
-
-    server.registerTool("get_instructions", {
-      description: "Read-only. Show your current extra instructions (set by the user).",
-      inputSchema: {},
-    }, async () => text(options().extra_instructions || "(empty)"));
 
     server.registerTool("propose_instructions", {
       description: "Propose a change to your own extra instructions, e.g. when the user says 'remember that…' or 'forget that…'. Nothing happens now: the user must confirm with the passcode.",
@@ -338,19 +338,22 @@ export function createAdmin({ cfg, log }) {
     .listen(cfg.adminPort, "127.0.0.1", () => log(`claude-home admin tools on 127.0.0.1:${cfg.adminPort}`));
 
   function systemPromptPart() {
-    if (!enabled()) {
-      return `
-You cannot rename things, change areas, edit your own instructions or use protected entities. If asked, say the user can turn this on by setting a passcode on the Claude Home page (Settings).`;
-    }
     const prot = protectedList().map((id) => `${protectedNames.get(id) || id} (${id})`).join(", ");
-    return `
+    const read = `
+
+You can read the state of ANY entity with mcp__admin__find_entities, also ones the Home Assistant tools don't show. Reading is always allowed.
+Protected entities (you can read them, but not control them with the Home Assistant tools): ${prot || "none"}.`;
+    if (!enabled()) {
+      return `${read}
+You cannot control protected entities, rename things, change areas or edit your own instructions. If asked, say the user can turn this on by setting a passcode on the Claude Home page (Settings).`;
+    }
+    return `${read}
 
 Confirmation protocol. The passcode is "${passcode()}". With the mcp__admin tools you can propose:
-- renames of entities, devices and areas, creating areas, and moving things between areas (look up names with find_names first);
+- renames of entities, devices and areas, creating areas, and moving things between areas (look up names with find_entities first);
 - edits to your own extra instructions (when the user says "remember that…" or "forget that…");
 - adding entities to or removing them from the protected list;
-- reading or controlling protected entities (propose_use). Protected entities are hidden from the normal Home Assistant tools; propose_use is the only way to touch them.
-Protected entities: ${prot || "none"}.
+- controlling protected entities (propose_use, the only way to control them).
 1. These tools only PROPOSE. Call one propose tool with everything for the request. The system then replaces your reply with the exact list and the passcode to say.
 2. The proposal waits (up to 10 minutes) until the user's newest message contains the passcode. The system checks it in the user's own words (never in your text) and does exactly the stored list. If the user says no, call cancel_proposal. A new proposal replaces the old one.
 3. You learn the outcome from a [System note] at the start of the user's message. Only say something was done when a system note says so.

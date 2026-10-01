@@ -1,4 +1,4 @@
-// Ingress web UI: status, settings, exposed and protected entities.
+// Ingress web UI: status, settings, protected entities.
 // Only Home Assistant's ingress proxy may reach it; HA has already authenticated the user.
 import http from "node:http";
 import { readFileSync } from "node:fs";
@@ -59,11 +59,7 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin })
   }
 
   async function entities() {
-    const [states, exposed] = await haWs([
-      { type: "get_states" },
-      { type: "homeassistant/expose_entity/list" },
-    ]);
-    const exp = exposed.exposed_entities || {};
+    const [states] = await haWs([{ type: "get_states" }]);
     const prot = new Set(admin.protectedList());
     return states
       .map((st) => ({
@@ -71,7 +67,6 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin })
         name: st.attributes.friendly_name || st.entity_id,
         domain: st.entity_id.split(".")[0],
         state: st.state,
-        exposed: exp[st.entity_id]?.conversation === true,
         protected: prot.has(st.entity_id),
       }))
       .sort((a, b) => a.entity_id.localeCompare(b.entity_id));
@@ -98,14 +93,6 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin })
     },
     "POST /api/options": async (req) => { await saveOptions((await readJson(req)) || {}); return { ok: true }; },
     "GET /api/entities": async () => entities(),
-    "POST /api/expose": async (req) => {
-      const { entity_ids, exposed } = (await readJson(req)) || {};
-      if (!Array.isArray(entity_ids) || !entity_ids.length) throw new Error("entity_ids required");
-      if (exposed && entity_ids.some((id) => admin.protectedList().includes(id))) throw new Error("Protected entities stay hidden from Assist. Unprotect them first.");
-      await haWs([{ type: "homeassistant/expose_entity", assistants: ["conversation"], entity_ids, should_expose: !!exposed }]);
-      toolsCache.at = 0; // exposed scripts change the tool list
-      return { ok: true };
-    },
     "POST /api/protect": async (req) => {
       const { entity_ids, protected: on } = (await readJson(req)) || {};
       if (!Array.isArray(entity_ids) || !entity_ids.length) throw new Error("entity_ids required");

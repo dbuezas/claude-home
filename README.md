@@ -4,7 +4,7 @@ Claude Code, logged in with **your Claude subscription**, running as a Home Assi
 
 - **Assist conversation agent** – talk to it from the HA app, dashboards or voice satellites. Multi-turn: follow-ups like "and the bedroom too" keep context until the conversation has been idle for 15 min (configurable).
 - **Fast by default** – Opus with low effort. In tests it was faster than Haiku on multi-step questions (Haiku makes more tool calls) and more accurate.
-- **Locked down** – Claude only gets HA's MCP tools (entities exposed to Assist). No shell, no file access, no web, no subagents.
+- **Locked down** – Claude can read every entity, control the ones exposed to Assist, and nothing else without your passcode. No shell, no file access, no web, no subagents.
 
 ```
 Assist ──► custom_components/claude_home ──HTTP+token──► add-on ──► claude -p (opus, low effort) ──► HA MCP server
@@ -16,7 +16,7 @@ Requires HA OS or Supervised (it's an add-on) and HA 2025.8+.
 
 **0. Prerequisites in HA**
 - Settings → Devices & services → Add integration → **Model Context Protocol Server**. Claude controls the house through it.
-- Settings → Voice assistants → Expose: the entities Claude may see and control.
+- Settings → Voice assistants → Expose: the entities Claude may control without a passcode.
 
 **1. Subscription token** – on any computer with Claude Code: `claude setup-token`, copy the `sk-ant-oat…` token.
 
@@ -37,9 +37,9 @@ With the passcode, Claude may propose:
 - renaming entities, devices and areas, creating areas, moving things between areas;
 - edits to its own extra instructions ("remember that…");
 - adding devices to or removing them from the **protected** list;
-- reading or using a **protected** device.
+- controlling a **protected** device.
 
-Protected devices are hidden from Assist, so Claude's normal Home Assistant tools can't see or touch them (not even with "turn off the living room"). Manage the list on the Devices tab, or ask Claude.
+Claude can always read any device, protected or not. Protected devices are hidden from Assist, so Claude's normal Home Assistant tools can't control them (not even with "turn off the living room"). Manage the list on the Protected tab, or ask Claude.
 
 How a change works:
 1. You ask. Claude can only *propose*.
