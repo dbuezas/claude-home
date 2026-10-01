@@ -1,5 +1,5 @@
 name: Claude Home
-version: "0.3.0"
+version: "0.4.0"
 slug: claude_home
 description: Claude Code (your Claude subscription) as a Home Assistant conversation agent and MCP server
 url: https://github.com/dbuezas/claude-home
@@ -36,3 +36,7 @@ schema:
   api_token: password?
   ha_token: password?
   extra_instructions: str?
+  admin_passcode: password?
+  admin_hint: str?
+  instructions_passcode: password?
+  instructions_hint: str?

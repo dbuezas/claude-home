@@ -22,5 +22,16 @@ configuration:
   extra_instructions:
     name: Extra instructions
     description: Appended to the system prompt, e.g. house layout, nicknames for rooms.
+  admin_passcode:
+    name: Admin passcode
+    description: Lets Claude propose renames and area changes. Applied only when your next message contains this passcode. Empty turns it off.
+  admin_hint:
+    name: Admin passcode reminder
+    description: A question Claude says when it asks for the admin passcode.
+  instructions_passcode:
+    name: Instructions passcode
+    description: Lets Claude propose edits to its own extra instructions. Must differ from the admin passcode. Empty turns it off.
+  instructions_hint:
+    name: Instructions passcode reminder
 network:
   8099/tcp: Only needed for remote Claude Code (MCP). Leave empty to keep it internal.

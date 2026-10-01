@@ -1,10 +1,11 @@
 // Ingress web UI: status, test chat, settings, exposed entities, remote setup.
 // Only Home Assistant's ingress proxy may reach it; HA has already authenticated the user.
 import http from "node:http";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import WebSocket from "ws";
+import { supervisor, haWs, readOptions, writeOptions } from "./ha.mjs";
+import { normalize, SCOPES } from "./admin.mjs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -15,42 +16,13 @@ const EDITABLE = {
   session_idle_minutes: (v) => Math.min(1440, Math.max(1, Math.round(Number(v) || 15))),
   request_timeout: (v) => Math.min(600, Math.max(10, Math.round(Number(v) || 120))),
   extra_instructions: (v) => String(v ?? ""),
+  admin_hint: (v) => String(v ?? "").trim(),
+  instructions_hint: (v) => String(v ?? "").trim(),
 };
+const PASSCODES = Object.values(SCOPES).map((s) => s.passcode);
 
 const env = process.env;
-const supervisorToken = env.SUPERVISOR_TOKEN || "";
 const html = readFileSync(new URL("./ui.html", import.meta.url));
-
-async function supervisor(path, init = {}) {
-  const r = await fetch(`http://supervisor${path}`, {
-    ...init,
-    headers: { Authorization: `Bearer ${supervisorToken}`, "Content-Type": "application/json", ...init.headers },
-  });
-  const body = await r.json().catch(() => ({}));
-  if (!r.ok || body.result === "error") throw new Error(body.message || `supervisor ${path}: HTTP ${r.status}`);
-  return body.data;
-}
-
-// One short-lived websocket per call; this page is used rarely.
-function haWs(messages) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(env.HA_WS_URL || "ws://supervisor/core/websocket");
-    const results = [];
-    const timer = setTimeout(() => { ws.terminate(); reject(new Error("Home Assistant websocket timed out")); }, 15_000);
-    const done = (fn, v) => { clearTimeout(timer); ws.close(); fn(v); };
-    ws.on("error", (e) => done(reject, e));
-    ws.on("message", (raw) => {
-      const m = JSON.parse(raw);
-      if (m.type === "auth_required") return ws.send(JSON.stringify({ type: "auth", access_token: supervisorToken }));
-      if (m.type === "auth_invalid") return done(reject, new Error("Home Assistant rejected the Supervisor token"));
-      if (m.type === "auth_ok") return messages.forEach((msg, i) => ws.send(JSON.stringify({ id: i + 1, ...msg })));
-      if (m.type !== "result") return;
-      if (!m.success) return done(reject, new Error(m.error?.message || "Home Assistant command failed"));
-      results[m.id - 1] = m.result;
-      if (results.filter((x) => x !== undefined).length === messages.length) done(resolve, results);
-    });
-  });
-}
 
 let claudeVersion;
 let toolsCache = { at: 0, value: null };
@@ -71,10 +43,6 @@ async function mcpTools(mcpConfigPath) {
   }
   toolsCache = { at: Date.now(), value };
   return value;
-}
-
-function readOptions(file) {
-  try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; }
 }
 
 export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, log }) {
@@ -114,14 +82,19 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
   }
 
   async function saveOptions(changes) {
-    const current = readOptions(cfg.optionsFile);
-    const next = { ...current };
+    const next = { ...readOptions(cfg.optionsFile) };
     for (const [k, clean] of Object.entries(EDITABLE)) if (k in changes) next[k] = clean(changes[k]);
-    if (!next.extra_instructions) delete next.extra_instructions;
-    delete next.planner_model; // removed in 0.3.0; Supervisor rejects unknown options
-    await supervisor("/addons/self/options", { method: "POST", body: JSON.stringify({ options: next }) });
-    // Supervisor only rewrites options.json when the add-on restarts; apply the change now.
-    writeFileSync(cfg.optionsFile, JSON.stringify(next));
+    // Passcodes are write-only: empty keeps the current one, clear_<name> removes it.
+    for (const k of PASSCODES) {
+      if (changes[`clear_${k}`]) delete next[k];
+      else if (String(changes[k] ?? "").trim()) next[k] = String(changes[k]).trim();
+    }
+    for (const k of PASSCODES) {
+      if (next[k] && normalize(next[k]).trim().replace(/ /g, "").length < 4) throw new Error("A passcode needs at least 4 letters or digits.");
+    }
+    const [a, b] = PASSCODES.map((k) => next[k] && normalize(next[k]));
+    if (a && b && (a.includes(b) || b.includes(a))) throw new Error("The two passcodes must be different, and one must not contain the other.");
+    await writeOptions(cfg.optionsFile, next);
   }
 
   const routes = {
@@ -129,7 +102,10 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
     "GET /api/status": async () => status(),
     "GET /api/options": async () => {
       const o = readOptions(cfg.optionsFile);
-      return Object.fromEntries(Object.keys(EDITABLE).map((k) => [k, o[k] ?? ""]));
+      return {
+        ...Object.fromEntries(Object.keys(EDITABLE).map((k) => [k, o[k] ?? ""])),
+        ...Object.fromEntries(PASSCODES.map((k) => [`${k}_set`, !!o[k]])),
+      };
     },
     "POST /api/options": async (req) => { await saveOptions((await readJson(req)) || {}); return { ok: true }; },
     "GET /api/entities": async () => entities(),

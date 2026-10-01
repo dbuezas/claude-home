@@ -4,8 +4,9 @@
 //     POST /mcp           -> MCP endpoint (tool: ask_home) for remote Claude Code
 //     GET  /health
 //   :8098 (Ingress web UI, only reachable through Home Assistant) -> see ui.mjs
+//   127.0.0.1:8097 (passcode-gated admin tools, per-turn token) -> see admin.mjs
 // Every request runs `claude -p` (Claude Code, logged in with your subscription)
-// with only the HA MCP tools available.
+// with only the HA MCP tools (+ the admin proposal tools, if passcodes are set).
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -14,11 +15,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { startUi } from "./ui.mjs";
+import { createAdmin } from "./admin.mjs";
 
 const env = process.env;
 const cfg = {
   port: Number(env.PORT || 8099),
   uiPort: Number(env.UI_PORT || 8098),
+  adminPort: Number(env.ADMIN_PORT || 8097),
   apiToken: env.API_TOKEN || "",
   claudeBin: env.CLAUDE_BIN || "claude",
   mcpConfig: env.MCP_CONFIG || "/data/mcp.json",
@@ -47,11 +50,19 @@ function settings() {
   };
 }
 
+const admin = createAdmin({ cfg, log });
+
 const systemPrompt = (s) => `You are the voice/chat assistant of a home, running inside Home Assistant.
 Use the Home Assistant tools (mcp__ha__*) to read states and control devices.
 Replies are often spoken: answer in one or two short sentences, plain text, no markdown, no lists.
-Reply in the language the user used. If you need clarification, ask one short question.
+Reply in the language the user used. If you need clarification, ask one short question.${admin.systemPromptPart()}
 ${s.extra}`.trim();
+
+// HA's MCP server (from mcp.json) plus any per-turn servers, as an inline --mcp-config.
+function mcpConfig(extra) {
+  const base = JSON.parse(readFileSync(cfg.mcpConfig, "utf8"));
+  return JSON.stringify({ mcpServers: { ...base.mcpServers, ...extra } });
+}
 
 
 // ---- sessions: external conversation id -> Claude Code session id ----------
@@ -64,7 +75,7 @@ setInterval(() => {
   for (const [k, s] of sessions) if (now - s.last > idleMs) sessions.delete(k);
 }, 60_000).unref();
 
-function runClaude(text, sid) {
+function runClaude(text, sid, extraServers = {}) {
   const s = settings();
   const args = [
     "-p",
@@ -72,9 +83,9 @@ function runClaude(text, sid) {
     "--verbose", // full message list, so we can see which tools ran
     "--model", s.mainModel,
     "--tools", "", // no built-in tools at all: no Bash/Edit/Read/Web/subagents
-    "--mcp-config", cfg.mcpConfig,
+    "--mcp-config", mcpConfig(extraServers),
     "--strict-mcp-config",
-    "--allowedTools", "mcp__ha",
+    "--allowedTools", "mcp__ha", "mcp__admin",
     "--permission-mode", "dontAsk", // anything not allowed is denied, never prompted
     "--append-system-prompt", systemPrompt(s),
   ];
@@ -103,7 +114,7 @@ function runClaude(text, sid) {
         .filter((m) => m.type === "assistant")
         .flatMap((m) => m.message?.content || [])
         .filter((c) => c.type === "tool_use")
-        .map((c) => c.name.replace(/^mcp__ha__/, ""));
+        .map((c) => c.name.replace(/^mcp__ha__/, "").replace(/^mcp__admin__/, "admin."));
       r = msgs.findLast((m) => m.type === "result") || {};
       if (r.is_error) return reject(new Error(r.result || r.subtype || "claude error"));
       resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms, tools });
@@ -117,26 +128,41 @@ async function ask(key, text) {
   const job = prev.catch(() => {}).then(async () => {
     const existing = sessions.get(key);
     const fresh = !existing || Date.now() - existing.last > settings().idleMs;
-    const entry = { at: new Date().toISOString(), source: key.split(":")[0], model: settings().mainModel, text, reply: null, tools: [], ms: null, error: null };
+    const shown = admin.redact(text); // never log or display passcodes
+    const entry = { at: new Date().toISOString(), source: key.split(":")[0], model: settings().mainModel, text: shown, reply: null, tools: [], ms: null, error: null };
     recent.unshift(entry);
     recent.length = Math.min(recent.length, 50);
     const t0 = Date.now();
+
+    // Passcode messages are answered by the server and never reach Claude.
+    const gate = await admin.beforeTurn(key, text);
+    if (gate.reply) {
+      Object.assign(entry, { reply: gate.reply, tools: ["(handled by server)"], ms: Date.now() - t0 });
+      if (existing) existing.last = Date.now();
+      log(`[${key}] server: ${JSON.stringify(shown).slice(0, 80)} -> ${JSON.stringify(gate.reply).slice(0, 120)}`);
+      return { text: gate.reply, tools: [], ms: Date.now() - t0 };
+    }
+
+    const turn = admin.grantFor(key);
     let r;
     try {
       try {
-        r = await runClaude(text, fresh ? undefined : existing.sid);
+        r = await runClaude(gate.text, fresh ? undefined : existing.sid, turn.servers);
       } catch (e) {
         if (fresh) throw e;
         log(`resume failed for ${key}, starting fresh: ${e.message}`);
-        r = await runClaude(text, undefined);
+        r = await runClaude(gate.text, undefined, turn.servers);
       }
     } catch (e) {
       Object.assign(entry, { error: e.message, ms: Date.now() - t0 });
       throw e;
+    } finally {
+      turn.release();
     }
+    r.text += admin.afterTurn(key, turn.grant);
     Object.assign(entry, { reply: r.text, tools: r.tools, ms: Date.now() - t0 });
     sessions.set(key, { sid: r.sid, last: Date.now() });
-    log(`[${key}] ${settings().mainModel} ${r.ms ?? "?"}ms tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
+    log(`[${key}] ${settings().mainModel} ${r.ms ?? "?"}ms tools=${r.tools.join(",") || "-"} ${JSON.stringify(shown).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;
   });
   queues.set(key, job);
