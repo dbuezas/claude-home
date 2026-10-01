@@ -79,11 +79,11 @@ export function createAdmin({ cfg, log }) {
     };
   }
 
-  // After Claude's turn: if it proposed something, the server appends the exact list.
+  // After Claude's turn: if it proposed something, the reply is replaced by the exact list.
   function afterTurn(key, grant) {
     const plan = plans.get(key);
     if (!plan || !grant || plan.grant !== grant) return "";
-    return `\n\nPending changes: ${plan.lines.join(". ")}. ${confirmPrompt(plan.scope)}`;
+    return `I'll do this: ${plan.lines.join(". ")}. ${confirmPrompt(plan.scope)}`;
   }
 
   // ---- registry helpers -----------------------------------------------------
@@ -168,7 +168,7 @@ export function createAdmin({ cfg, log }) {
   // ---- the local MCP server Claude talks to ---------------------------------
   const text = (t) => ({ content: [{ type: "text", text: t }] });
   const fail = (t) => ({ isError: true, ...text(t) });
-  const PROPOSED = "Proposal stored. The system will append the exact list of changes and ask the user for the passcode. In your reply, say in one short sentence what you propose; do not list the changes again or ask for the passcode (the system does), and never say it is done.";
+  const PROPOSED = "Proposal stored. The system will append the exact list of changes and ask the user for the passcode. The system replaces your reply with the exact list and the passcode, so just end your turn with a short reply.";
 
   function buildServer({ key, scopes, grant }) {
     const server = new McpServer({ name: "claude-home-admin", version: "0.4.0" });
@@ -265,7 +265,7 @@ You cannot rename things, change areas or edit your own instructions. If asked, 
     return `
 
 Confirmation protocol for changes. With the mcp__admin tools you can ${can}.
-1. These tools only PROPOSE. Call the propose tool once with every change for the request. Then reply with one short sentence about what you propose. The system appends the exact list of changes and asks the user to say the passcode.
+1. These tools only PROPOSE. Call the propose tool once with every change for the request. The system then replaces your reply with the exact list of changes and the passcode to say.
 2. The user's NEXT message must contain the matching passcode. The system checks it in the user's own words (never in your text) and applies exactly the stored list. Any other message cancels the proposal.
 3. You learn the outcome from a [System note] at the start of the user's message. Only say something was done when a system note says it was applied.
 The passcodes are not secret; they only prove the confirmation came from the user, so saying one yourself does nothing. Tell the user a passcode whenever they need it. If the user wants to confirm but no passcode was recognized, say nothing was changed and ask them to request it again and then say the passcode. If they ask how this works, explain these steps simply.`;
