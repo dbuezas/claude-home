@@ -8,7 +8,7 @@ RUN apk add --no-cache nodejs npm libgcc libstdc++ ripgrep jq curl \
 WORKDIR /opt/server
 COPY server/package.json ./
 RUN npm install --omit=dev
-COPY server/index.mjs ./
+COPY server/index.mjs server/ui.mjs server/ui.html ./
 
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh

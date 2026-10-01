@@ -1,5 +1,5 @@
 name: Claude Home
-version: "0.1.0"
+version: "0.2.0"
 slug: claude_home
 description: Claude Code (your Claude subscription) as a Home Assistant conversation agent and MCP server
 url: https://github.com/dbuezas/claude-home
@@ -10,6 +10,11 @@ init: false
 startup: application
 boot: auto
 homeassistant_api: true
+hassio_api: true
+ingress: true
+ingress_port: 8098
+panel_icon: mdi:robot-happy-outline
+panel_title: Claude
 discovery:
   - claude_home
 ports:

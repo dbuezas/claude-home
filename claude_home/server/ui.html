@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Home</title>
+<style>
+  :root {
+    --bg: #f5f5f5; --card: #ffffff; --text: #212121; --muted: #6b6b6b; --line: #e3e3e3;
+    --accent: #c96442; --accent-text: #ffffff; --ok: #2e7d32; --bad: #c62828; --warn: #b26a00;
+    --chip: #f0ece9; --input: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111111; --card: #1c1c1c; --text: #e6e6e6; --muted: #9a9a9a; --line: #2e2e2e;
+      --accent: #d97757; --accent-text: #111111; --ok: #66bb6a; --bad: #ef5350; --warn: #ffb74d;
+      --chip: #2a2522; --input: #151515;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--card); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  nav { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; }
+  nav button { background: none; border: 0; color: var(--muted); padding: 8px 12px; border-radius: 8px; font: inherit; cursor: pointer; }
+  nav button.on { background: var(--chip); color: var(--text); font-weight: 600; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+  section { display: none; } section.on { display: block; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .stat .k { color: var(--muted); font-size: 13px; } .stat .v { font-size: 17px; font-weight: 600; word-break: break-word; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); } .muted { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+  .chip.script { outline: 1px solid var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  .table-wrap { overflow-x: auto; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  input[type=text], input[type=number], input[type=search], select, textarea {
+    width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--text); font: inherit;
+  }
+  textarea { min-height: 110px; resize: vertical; }
+  button.primary, button.secondary { border: 0; border-radius: 8px; padding: 9px 16px; font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button.secondary { background: var(--chip); color: var(--text); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > .grow { flex: 1; min-width: 160px; }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .chatlog { display: flex; flex-direction: column; gap: 10px; min-height: 240px; max-height: 55vh; overflow-y: auto; padding: 4px 0 12px; }
+  .msg { max-width: 85%; padding: 9px 12px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-text); }
+  .msg.bot { align-self: flex-start; background: var(--chip); }
+  .msg .meta { display: block; font-size: 12px; opacity: .7; margin-top: 4px; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  pre { background: var(--chip); padding: 12px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 8px 0; }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; display: none; max-width: calc(100% - 32px); }
+  .toggle { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .ent-name { font-weight: 500; } .ent-id { font-size: 12px; color: var(--muted); word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Claude Home</h1>
+  <nav id="tabs">
+    <button data-tab="status" class="on">Status</button>
+    <button data-tab="chat">Chat</button>
+    <button data-tab="settings">Settings</button>
+    <button data-tab="devices">Devices</button>
+    <button data-tab="remote">Remote</button>
+  </nav>
+</header>
+<main>
+  <section id="status" class="on">
+    <div class="card"><div class="grid" id="stats"><div class="muted">Loading…</div></div></div>
+    <div class="card">
+      <h2>Tools Claude can use</h2>
+      <div class="hint" style="margin:0 0 10px">Scripts (orange outline) run as tools. Hide any you don't want Claude to start on the Devices tab.</div>
+      <div class="chips" id="tools"></div>
+    </div>
+    <div class="card">
+      <h2>Recent requests</h2>
+      <div class="table-wrap"><table><thead><tr><th>When</th><th>From</th><th>Request</th><th>Reply</th><th>Time</th></tr></thead><tbody id="recent"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="chat">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0">Test chat</h2>
+        <button class="secondary" id="newchat">New conversation</button>
+      </div>
+      <div class="hint" style="margin:0 0 8px">Same agent as Assist. Commands here really control your devices.</div>
+      <div class="chatlog" id="chatlog"></div>
+      <form class="row" id="chatform">
+        <input class="grow" type="text" id="chatinput" placeholder="Ask about or control your home…" autocomplete="off">
+        <button class="primary" id="chatsend">Send</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="settings">
+    <form class="card" id="settingsform">
+      <h2>Settings</h2>
+      <datalist id="models"><option value="haiku"><option value="sonnet"><option value="opus"></datalist>
+      <label for="main_model">Main model (answers every request)</label>
+      <input type="text" id="main_model" list="models">
+      <label for="planner_model">Planner model (for complex, multi-step requests)</label>
+      <input type="text" id="planner_model" list="models">
+      <div class="grid">
+        <div><label for="session_idle_minutes">Conversation memory (minutes)</label><input type="number" id="session_idle_minutes" min="1" max="1440"></div>
+        <div><label for="request_timeout">Request timeout (seconds)</label><input type="number" id="request_timeout" min="10" max="600"></div>
+      </div>
+      <label for="extra_instructions">Extra instructions</label>
+      <textarea id="extra_instructions" placeholder="E.g. &quot;Wintergarten&quot; is the sunroom. Never touch the 3D printer."></textarea>
+      <div class="hint">Changes apply to the next request. No restart needed. To change the Claude token, use the add-on's Configuration tab.</div>
+      <div class="row" style="margin-top:14px"><button class="primary" id="savesettings">Save</button></div>
+    </form>
+  </section>
+
+  <section id="devices">
+    <div class="card">
+      <h2>Devices Claude may see and control</h2>
+      <div class="hint" style="margin:0 0 10px">This is Home Assistant's "Expose to Assist" setting. It applies to every Assist agent, not only Claude.</div>
+      <div class="row">
+        <input class="grow" type="search" id="entsearch" placeholder="Search name or entity id">
+        <select id="entdomain" style="width:auto"><option value="">All types</option></select>
+        <select id="entfilter" style="width:auto"><option value="">All</option><option value="1">Exposed</option><option value="0">Hidden</option></select>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <span class="muted grow" id="entcount"></span>
+        <button class="secondary" id="exposeall">Expose shown</button>
+        <button class="secondary" id="hideall">Hide shown</button>
+      </div>
+      <div class="table-wrap" style="margin-top:8px"><table><thead><tr><th style="width:40px">On</th><th>Entity</th><th>State</th></tr></thead><tbody id="entities"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="remote">
+    <div class="card">
+      <h2>Use from Claude Code on another computer</h2>
+      <div id="remotebody" class="muted">Loading…</div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => (t.style.display = "none"), 3500); }
+const ago = (iso) => { const s = Math.round((Date.now() - new Date(iso)) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : new Date(iso).toLocaleString(); };
+
+// ---- tabs
+const loaders = {};
+$("#tabs").addEventListener("click", (e) => {
+  const tab = e.target.dataset.tab; if (!tab) return;
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  document.querySelectorAll("section").forEach((s) => s.classList.toggle("on", s.id === tab));
+  try { localStorage.setItem("tab", tab); } catch {}
+  loaders[tab]?.();
+});
+
+// ---- status
+let statusCache;
+loaders.status = async () => {
+  try {
+    const s = statusCache = await api("api/status");
+    $("#stats").innerHTML = [
+      ["Home Assistant tools", s.mcp.ok ? `<span class="ok">Connected</span> · ${s.mcp.tools.length} tools` : `<span class="bad">Not reachable</span>`],
+      ["Main model", esc(s.models.main)],
+      ["Planner model", esc(s.models.planner)],
+      ["Open conversations", s.sessions],
+      ["Claude Code", esc(s.claudeVersion)],
+    ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+    $("#tools").innerHTML = s.mcp.ok
+      ? s.mcp.tools.map((t) => `<span class="chip ${t.name.includes("script") ? "script" : ""}" title="${esc(t.description)}">${esc(t.name)}</span>`).join("")
+      : `<span class="bad">${esc(s.mcp.error)}</span>`;
+    $("#recent").innerHTML = s.recent.length
+      ? s.recent.map((r) => `<tr><td class="muted">${ago(r.at)}</td><td>${esc(r.source)}</td><td>${esc(r.text)}</td><td>${r.error ? `<span class="bad">${esc(r.error)}</span>` : r.reply === null ? `<span class="muted">working…</span>` : esc(r.reply)}</td><td class="muted">${r.ms ? (r.ms / 1000).toFixed(1) + "s" : ""}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="muted">No requests yet.</td></tr>`;
+  } catch (e) { $("#stats").innerHTML = `<div class="bad">${esc(e.message)}</div>`; }
+};
+
+// ---- chat
+let chatId = null;
+function bubble(cls, text, meta) {
+  const d = document.createElement("div"); d.className = `msg ${cls}`; d.textContent = text;
+  if (meta) { const m = document.createElement("span"); m.className = "meta"; m.textContent = meta; d.appendChild(m); }
+  $("#chatlog").appendChild(d); $("#chatlog").scrollTop = 1e9; return d;
+}
+$("#newchat").onclick = () => { chatId = null; $("#chatlog").innerHTML = ""; $("#chatinput").focus(); };
+$("#chatform").onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $("#chatinput").value.trim(); if (!text) return;
+  $("#chatinput").value = ""; $("#chatsend").disabled = true;
+  bubble("user", text);
+  const wait = bubble("bot", "…");
+  try {
+    const r = await api("api/chat", { text, conversation_id: chatId });
+    chatId = r.conversation_id;
+    wait.remove(); bubble("bot", r.reply || "(empty reply)", `${((r.ms || 0) / 1000).toFixed(1)}s`);
+  } catch (err) { wait.remove(); bubble("bot", `Error: ${err.message}`); }
+  $("#chatsend").disabled = false; $("#chatinput").focus();
+};
+
+// ---- settings
+const FIELDS = ["main_model", "planner_model", "session_idle_minutes", "request_timeout", "extra_instructions"];
+loaders.settings = async () => {
+  try { const o = await api("api/options"); FIELDS.forEach((k) => ($("#" + k).value = o[k] ?? "")); }
+  catch (e) { toast(e.message); }
+};
+$("#settingsform").onsubmit = async (e) => {
+  e.preventDefault(); $("#savesettings").disabled = true;
+  try { await api("api/options", Object.fromEntries(FIELDS.map((k) => [k, $("#" + k).value]))); toast("Saved"); await loaders.settings(); }
+  catch (err) { toast(`Not saved: ${err.message}`); }
+  $("#savesettings").disabled = false;
+};
+
+// ---- devices
+let ents = [];
+const shown = () => {
+  const q = $("#entsearch").value.toLowerCase(), d = $("#entdomain").value, f = $("#entfilter").value;
+  return ents.filter((x) => (!d || x.domain === d) && (f === "" || String(+x.exposed) === f) && (!q || x.name.toLowerCase().includes(q) || x.entity_id.includes(q)));
+};
+function renderEnts() {
+  const list = shown();
+  $("#entcount").textContent = `${list.length} shown · ${ents.filter((x) => x.exposed).length} of ${ents.length} exposed`;
+  $("#entities").innerHTML = list.slice(0, 500).map((x) => `<tr>
+    <td><input type="checkbox" class="toggle" data-id="${esc(x.entity_id)}" ${x.exposed ? "checked" : ""} aria-label="Expose ${esc(x.name)}"></td>
+    <td><div class="ent-name">${esc(x.name)}</div><div class="ent-id">${esc(x.entity_id)}</div></td>
+    <td class="muted">${esc(x.state)}</td></tr>`).join("") + (list.length > 500 ? `<tr><td colspan="3" class="muted">Showing 500 of ${list.length}. Narrow the search.</td></tr>` : "");
+}
+async function setExposed(ids, exposed) {
+  await api("api/expose", { entity_ids: ids, exposed });
+  ents.forEach((x) => { if (ids.includes(x.entity_id)) x.exposed = exposed; });
+  renderEnts();
+}
+loaders.devices = async () => {
+  try {
+    ents = await api("api/entities");
+    const domains = [...new Set(ents.map((x) => x.domain))].sort();
+    const cur = $("#entdomain").value;
+    $("#entdomain").innerHTML = `<option value="">All types</option>` + domains.map((d) => `<option ${d === cur ? "selected" : ""}>${esc(d)}</option>`).join("");
+    renderEnts();
+  } catch (e) { $("#entities").innerHTML = `<tr><td colspan="3" class="bad">${esc(e.message)}</td></tr>`; }
+};
+["#entsearch", "#entdomain", "#entfilter"].forEach((s) => $(s).addEventListener("input", renderEnts));
+$("#entities").addEventListener("change", async (e) => {
+  const id = e.target.dataset.id; if (!id) return;
+  try { await setExposed([id], e.target.checked); } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
+});
+for (const [btn, val] of [["#exposeall", true], ["#hideall", false]]) {
+  $(btn).onclick = async () => {
+    const ids = shown().filter((x) => x.exposed !== val).map((x) => x.entity_id);
+    if (!ids.length) return toast("Nothing to change");
+    try { await setExposed(ids, val); toast(`${val ? "Exposed" : "Hid"} ${ids.length} entities`); } catch (err) { toast(err.message); }
+  };
+}
+
+// ---- remote
+loaders.remote = async () => {
+  try {
+    const s = statusCache || (await api("api/status"));
+    const port = s.remote.mappedPort;
+    const host = `homeassistant.local:${port || 8099}`;
+    const cmd = `claude mcp add --transport http home http://${host}/mcp \\\n  --header "Authorization: Bearer ${s.remote.token}"`;
+    $("#remotebody").innerHTML = `
+      <p>${port ? `<span class="ok">Port ${port} is open on your network.</span>` : `<span class="warn">The port is closed.</span> Open it in the add-on's Configuration tab → Network: set <code>8099</code>, then save and restart the add-on.`}</p>
+      <p>Then run this on the other computer:</p>
+      <pre id="cmd">${esc(cmd)}</pre>
+      <div class="row"><button class="secondary" id="copycmd">Copy command</button></div>
+      <p class="hint">The command contains the API token. Keep it private. Away from home, use the Tailscale add-on. Never forward this port to the internet.</p>`;
+    $("#copycmd").onclick = async () => { try { await navigator.clipboard.writeText(cmd); toast("Copied"); } catch { toast("Copy blocked: select the text instead"); } };
+  } catch (e) { $("#remotebody").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+};
+
+let start = "status";
+try { start = localStorage.getItem("tab") || "status"; } catch {}
+const startBtn = document.querySelector(`#tabs button[data-tab="${start}"]`);
+startBtn ? startBtn.click() : loaders.status();
+setInterval(() => { if ($("#status").classList.contains("on")) loaders.status(); }, 10_000);
+</script>
+</body>
+</html>

@@ -34,12 +34,8 @@ jq -n --arg url "$HA_MCP_URL" --arg auth "Bearer $HA_AUTH" \
   '{mcpServers: {ha: {type: "http", url: $url, headers: {Authorization: $auth}}}}' > /data/mcp.json
 chmod 600 /data/mcp.json
 
-export MAIN_MODEL="$(bashio::config 'main_model')"
-export PLANNER_MODEL="$(bashio::config 'planner_model')"
-export SESSION_IDLE_MINUTES="$(bashio::config 'session_idle_minutes')"
-export REQUEST_TIMEOUT_S="$(bashio::config 'request_timeout')"
-export EXTRA_INSTRUCTIONS="$(bashio::config 'extra_instructions' '')"
-export MCP_CONFIG=/data/mcp.json WORK_DIR=/data/work PORT=8099
+# Models, timeouts and extra instructions are read live from /data/options.json.
+export MCP_CONFIG=/data/mcp.json WORK_DIR=/data/work PORT=8099 UI_PORT=8098
 
 # --- sanity check: can Claude see HA's MCP server? ---
 if ! curl -sf -o /dev/null -X POST -H "Authorization: Bearer $HA_AUTH" \

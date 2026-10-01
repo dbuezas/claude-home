@@ -1,28 +1,29 @@
 // Claude Home add-on server.
-//   POST /conversation  -> used by the HA custom component (Assist agent)
-//   POST /mcp           -> MCP endpoint (tool: ask_home) for remote Claude Code
-//   GET  /health
+//   :8099 (API, bearer token)
+//     POST /conversation  -> used by the HA custom component (Assist agent)
+//     POST /mcp           -> MCP endpoint (tool: ask_home) for remote Claude Code
+//     GET  /health
+//   :8098 (Ingress web UI, only reachable through Home Assistant) -> see ui.mjs
 // Every request runs `claude -p` (Claude Code, logged in with your subscription)
-// with only the HA MCP tools + one Opus planner subagent available.
+// with only the HA MCP tools + one planner subagent available.
 import http from "node:http";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { startUi } from "./ui.mjs";
 
 const env = process.env;
 const cfg = {
   port: Number(env.PORT || 8099),
+  uiPort: Number(env.UI_PORT || 8098),
   apiToken: env.API_TOKEN || "",
   claudeBin: env.CLAUDE_BIN || "claude",
-  mainModel: env.MAIN_MODEL || "haiku",
-  plannerModel: env.PLANNER_MODEL || "opus",
-  idleMs: Number(env.SESSION_IDLE_MINUTES || 15) * 60_000,
-  timeoutMs: Number(env.REQUEST_TIMEOUT_S || 120) * 1000,
   mcpConfig: env.MCP_CONFIG || "/data/mcp.json",
   workDir: env.WORK_DIR || "/data/work",
-  extra: env.EXTRA_INSTRUCTIONS || "",
+  optionsFile: env.OPTIONS_FILE || "/data/options.json",
 };
 
 if (!cfg.apiToken) {
@@ -32,45 +33,61 @@ if (!cfg.apiToken) {
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
-const SYSTEM_PROMPT = `You are the voice/chat assistant of a home, running inside Home Assistant.
+// Add-on options are read on every request, so changes from the web UI or the
+// Configuration tab apply without a restart (except the Claude token).
+function settings() {
+  let o = {};
+  try { o = JSON.parse(readFileSync(cfg.optionsFile, "utf8")); } catch {}
+  return {
+    mainModel: o.main_model || "haiku",
+    plannerModel: o.planner_model || "opus",
+    idleMs: Number(o.session_idle_minutes || 15) * 60_000,
+    timeoutMs: Number(o.request_timeout || 120) * 1000,
+    extra: o.extra_instructions || "",
+  };
+}
+
+const systemPrompt = (s) => `You are the voice/chat assistant of a home, running inside Home Assistant.
 Use the Home Assistant tools (mcp__ha__*) to read states and control devices.
 Handle simple, direct commands yourself. Delegate to the "home-planner" agent anything multi-step,
 ambiguous, conditional, involving several rooms/devices, or needing troubleshooting/reasoning.
 Replies are often spoken: answer in one or two short sentences, plain text, no markdown, no lists.
 Reply in the language the user used. If you need clarification, ask one short question.
-${cfg.extra}`.trim();
+${s.extra}`.trim();
 
-const AGENTS = JSON.stringify({
+const agents = (s) => JSON.stringify({
   "home-planner": {
     description:
       "Use for multi-step or ambiguous home requests: scenes across rooms, conditional logic, reasoning about current states, troubleshooting, or anything needing more than one or two tool calls. Not for single direct commands.",
     prompt:
       "You plan and execute complex Home Assistant requests with the Home Assistant tools. Check current states before acting when it matters. Be precise. Finish with a one-sentence summary of what you did or found.",
-    model: cfg.plannerModel,
+    model: s.plannerModel,
   },
 });
 
 // ---- sessions: external conversation id -> Claude Code session id ----------
 const sessions = new Map(); // key -> { sid, last }
 const queues = new Map(); // key -> promise chain (serialize turns per conversation)
+const recent = []; // last requests, newest first, for the web UI
 
 setInterval(() => {
-  const now = Date.now();
-  for (const [k, s] of sessions) if (now - s.last > cfg.idleMs) sessions.delete(k);
+  const now = Date.now(), { idleMs } = settings();
+  for (const [k, s] of sessions) if (now - s.last > idleMs) sessions.delete(k);
 }, 60_000).unref();
 
 function runClaude(text, sid) {
+  const s = settings();
   const args = [
     "-p",
     "--output-format", "json",
-    "--model", cfg.mainModel,
+    "--model", s.mainModel,
     "--tools", "Agent", // only built-in tool: subagents. No Bash/Edit/Read/Web.
     "--mcp-config", cfg.mcpConfig,
     "--strict-mcp-config",
     "--allowedTools", "mcp__ha", "Agent",
     "--permission-mode", "dontAsk", // anything not allowed is denied, never prompted
-    "--agents", AGENTS,
-    "--append-system-prompt", SYSTEM_PROMPT,
+    "--agents", agents(s),
+    "--append-system-prompt", systemPrompt(s),
   ];
   if (sid) args.push("--resume", sid);
 
@@ -79,8 +96,8 @@ function runClaude(text, sid) {
     let out = "", err = "";
     const timer = setTimeout(() => {
       p.kill("SIGTERM");
-      reject(new Error(`claude timed out after ${cfg.timeoutMs / 1000}s`));
-    }, cfg.timeoutMs);
+      reject(new Error(`claude timed out after ${s.timeoutMs / 1000}s`));
+    }, s.timeoutMs);
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (err += d));
     p.on("error", (e) => { clearTimeout(timer); reject(e); });
@@ -103,15 +120,25 @@ async function ask(key, text) {
   const prev = queues.get(key) || Promise.resolve();
   const job = prev.catch(() => {}).then(async () => {
     const existing = sessions.get(key);
-    const fresh = !existing || Date.now() - existing.last > cfg.idleMs;
+    const fresh = !existing || Date.now() - existing.last > settings().idleMs;
+    const entry = { at: new Date().toISOString(), source: key.split(":")[0], text, reply: null, ms: null, error: null };
+    recent.unshift(entry);
+    recent.length = Math.min(recent.length, 50);
+    const t0 = Date.now();
     let r;
     try {
-      r = await runClaude(text, fresh ? undefined : existing.sid);
+      try {
+        r = await runClaude(text, fresh ? undefined : existing.sid);
+      } catch (e) {
+        if (fresh) throw e;
+        log(`resume failed for ${key}, starting fresh: ${e.message}`);
+        r = await runClaude(text, undefined);
+      }
     } catch (e) {
-      if (fresh) throw e;
-      log(`resume failed for ${key}, starting fresh: ${e.message}`);
-      r = await runClaude(text, undefined);
+      Object.assign(entry, { error: e.message, ms: Date.now() - t0 });
+      throw e;
     }
+    Object.assign(entry, { reply: r.text, ms: Date.now() - t0 });
     sessions.set(key, { sid: r.sid, last: Date.now() });
     log(`[${key}] ${r.ms ?? "?"}ms ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;
@@ -122,7 +149,7 @@ async function ask(key, text) {
 
 // ---- MCP endpoint for remote Claude Code ------------------------------------
 function buildMcp() {
-  const server = new McpServer({ name: "claude-home", version: "0.1.0" });
+  const server = new McpServer({ name: "claude-home", version: "0.2.0" });
   server.registerTool(
     "ask_home",
     {
@@ -198,4 +225,6 @@ http
       if (!res.headersSent) send(res, 500, { error: e.message });
     }
   })
-  .listen(cfg.port, () => log(`claude-home listening on :${cfg.port} (main=${cfg.mainModel}, planner=${cfg.plannerModel})`));
+  .listen(cfg.port, () => log(`claude-home API listening on :${cfg.port}`));
+
+startUi({ cfg, settings, ask, recent, sessions, readJson, send, log });
