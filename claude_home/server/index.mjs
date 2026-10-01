@@ -90,6 +90,8 @@ function runClaude(text, sid) {
       try { r = JSON.parse(out); } catch {
         return reject(new Error(`claude exited ${code}: ${(err || out).trim().slice(0, 500)}`));
       }
+      // With verbose enabled, json output is the whole message array; the result is its last entry.
+      if (Array.isArray(r)) r = r.findLast((m) => m.type === "result") || {};
       if (r.is_error) return reject(new Error(r.result || r.subtype || "claude error"));
       resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms });
     });
