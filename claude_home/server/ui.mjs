@@ -10,8 +10,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const INGRESS_IP = "172.30.32.2";
 const EDITABLE = {
-  main_model: (v) => String(v).trim() || "haiku",
-  planner_model: (v) => String(v).trim() || "opus",
+  main_model: (v) => String(v).trim() || "opus",
   effort: (v) => (["low", "medium", "high", "xhigh", "max"].includes(v) ? v : "default"),
   session_idle_minutes: (v) => Math.min(1440, Math.max(1, Math.round(Number(v) || 15))),
   request_timeout: (v) => Math.min(600, Math.max(10, Math.round(Number(v) || 120))),
@@ -89,7 +88,7 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
     try { mappedPort = (await supervisor("/addons/self/info")).network?.["8099/tcp"] ?? null; } catch {}
     return {
       claudeVersion,
-      models: { main: s.mainModel, planner: s.plannerModel, effort: s.effort || "default" },
+      models: { main: s.mainModel, effort: s.effort || "default" },
       sessions: sessions.size,
       recent,
       mcp: await mcpTools(cfg.mcpConfig),
@@ -119,6 +118,7 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
     const next = { ...current };
     for (const [k, clean] of Object.entries(EDITABLE)) if (k in changes) next[k] = clean(changes[k]);
     if (!next.extra_instructions) delete next.extra_instructions;
+    delete next.planner_model; // removed in 0.3.0; Supervisor rejects unknown options
     await supervisor("/addons/self/options", { method: "POST", body: JSON.stringify({ options: next }) });
     // Supervisor only rewrites options.json when the add-on restarts; apply the change now.
     writeFileSync(cfg.optionsFile, JSON.stringify(next));

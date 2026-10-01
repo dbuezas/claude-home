@@ -3,13 +3,13 @@
 Claude Code, logged in with **your Claude subscription**, running as a Home Assistant add-on:
 
 - **Assist conversation agent** – talk to it from the HA app, dashboards or voice satellites. Multi-turn: follow-ups like "and the bedroom too" keep context until the conversation has been idle for 15 min (configurable).
-- **Haiku → Opus routing** – Haiku answers everything by default and delegates multi-step / ambiguous requests to an Opus `home-planner` subagent.
+- **Fast by default** – Opus with low effort. In tests it was faster than Haiku on multi-step questions (Haiku makes more tool calls) and more accurate.
 - **MCP server for remote Claude Code** – other machines get an `ask_home` tool.
-- **Locked down** – Claude only gets HA's MCP tools (entities exposed to Assist) plus the planner subagent. No shell, no file access, no web.
+- **Locked down** – Claude only gets HA's MCP tools (entities exposed to Assist) No shell, no file access, no web, no subagents.
 
 ```
-Assist ──► custom_components/claude_home ──HTTP+token──► add-on ──► claude -p (haiku) ──► HA MCP server
-                                                            ▲            └─► home-planner (opus)
+Assist ──► custom_components/claude_home ──HTTP+token──► add-on ──► claude -p (opus, low effort) ──► HA MCP server
+                                                            ▲
 remote Claude Code ──MCP (ask_home)─────────────────────────┘
 ```
 
@@ -48,8 +48,8 @@ Away from home, use the Tailscale add-on. **Never port-forward this to the inter
 
 | Option | Default | |
 |---|---|---|
-| `main_model` | `haiku` | Handles every request |
-| `planner_model` | `opus` | Subagent for complex requests |
+| `main_model` | `opus` | Handles every request |
+| `effort` | `low` | Thinking effort; lower is faster |
 | `session_idle_minutes` | 15 | Conversation context lifetime |
 | `request_timeout` | 120 | Seconds per request |
 | `api_token` | auto | Token for the integration / remote clients |
@@ -58,7 +58,7 @@ Away from home, use the Tailscale add-on. **Never port-forward this to the inter
 
 ## Notes
 
-- Each request spawns `claude -p`; expect a few seconds with Haiku, more when Opus plans. Fine for chat, noticeable for voice.
+- Each request spawns `claude -p`; expect about 5–8 seconds. Fine for chat, noticeable for voice.
 - Every request counts against your subscription's usage limits.
 - Automated use of a consumer subscription: check Anthropic's current terms for your plan.
 

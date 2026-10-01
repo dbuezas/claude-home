@@ -5,7 +5,7 @@
 //     GET  /health
 //   :8098 (Ingress web UI, only reachable through Home Assistant) -> see ui.mjs
 // Every request runs `claude -p` (Claude Code, logged in with your subscription)
-// with only the HA MCP tools + one planner subagent available.
+// with only the HA MCP tools available.
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -39,32 +39,20 @@ function settings() {
   let o = {};
   try { o = JSON.parse(readFileSync(cfg.optionsFile, "utf8")); } catch {}
   return {
-    mainModel: o.main_model || "haiku",
-    plannerModel: o.planner_model || "opus",
+    mainModel: o.main_model || "opus",
     idleMs: Number(o.session_idle_minutes || 15) * 60_000,
     timeoutMs: Number(o.request_timeout || 120) * 1000,
-    effort: o.effort && o.effort !== "default" ? o.effort : "",
+    effort: o.effort && o.effort !== "default" ? o.effort : o.effort === "default" ? "" : "low",
     extra: o.extra_instructions || "",
   };
 }
 
 const systemPrompt = (s) => `You are the voice/chat assistant of a home, running inside Home Assistant.
 Use the Home Assistant tools (mcp__ha__*) to read states and control devices.
-Handle simple, direct commands yourself. Delegate to the "home-planner" agent anything multi-step,
-ambiguous, conditional, involving several rooms/devices, or needing troubleshooting/reasoning.
 Replies are often spoken: answer in one or two short sentences, plain text, no markdown, no lists.
 Reply in the language the user used. If you need clarification, ask one short question.
 ${s.extra}`.trim();
 
-const agents = (s) => JSON.stringify({
-  "home-planner": {
-    description:
-      "Use for multi-step or ambiguous home requests: scenes across rooms, conditional logic, reasoning about current states, troubleshooting, or anything needing more than one or two tool calls. Not for single direct commands.",
-    prompt:
-      "You plan and execute complex Home Assistant requests with the Home Assistant tools. Check current states before acting when it matters. Be precise. Finish with a one-sentence summary of what you did or found.",
-    model: s.plannerModel,
-  },
-});
 
 // ---- sessions: external conversation id -> Claude Code session id ----------
 const sessions = new Map(); // key -> { sid, last }
@@ -83,12 +71,11 @@ function runClaude(text, sid) {
     "--output-format", "json",
     "--verbose", // full message list, so we can see which tools ran
     "--model", s.mainModel,
-    "--tools", "Agent", // only built-in tool: subagents. No Bash/Edit/Read/Web.
+    "--tools", "", // no built-in tools at all: no Bash/Edit/Read/Web/subagents
     "--mcp-config", cfg.mcpConfig,
     "--strict-mcp-config",
-    "--allowedTools", "mcp__ha", "Agent",
+    "--allowedTools", "mcp__ha",
     "--permission-mode", "dontAsk", // anything not allowed is denied, never prompted
-    "--agents", agents(s),
     "--append-system-prompt", systemPrompt(s),
   ];
   if (s.effort) args.push("--effort", s.effort);
@@ -113,10 +100,10 @@ function runClaude(text, sid) {
       // With --verbose, json output is the whole message array; the result is its last entry.
       const msgs = Array.isArray(r) ? r : [r];
       const tools = msgs
-        .filter((m) => m.type === "assistant" && !m.parent_tool_use_id)
+        .filter((m) => m.type === "assistant")
         .flatMap((m) => m.message?.content || [])
         .filter((c) => c.type === "tool_use")
-        .map((c) => (c.name === "Task" ? "Agent" : c.name).replace(/^mcp__ha__/, ""));
+        .map((c) => c.name.replace(/^mcp__ha__/, ""));
       r = msgs.findLast((m) => m.type === "result") || {};
       if (r.is_error) return reject(new Error(r.result || r.subtype || "claude error"));
       resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms, tools });

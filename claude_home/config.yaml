@@ -1,5 +1,5 @@
 name: Claude Home
-version: "0.2.3"
+version: "0.3.0"
 slug: claude_home
 description: Claude Code (your Claude subscription) as a Home Assistant conversation agent and MCP server
 url: https://github.com/dbuezas/claude-home
@@ -23,17 +23,16 @@ ports_description:
   8099/tcp: "Only needed for remote Claude Code (MCP). Leave empty to keep it internal."
 options:
   claude_oauth_token: ""
-  main_model: haiku
-  planner_model: opus
+  main_model: opus
+  effort: low
   session_idle_minutes: 15
   request_timeout: 120
 schema:
   claude_oauth_token: password
   main_model: str
-  planner_model: str
   session_idle_minutes: int(1,1440)
   request_timeout: int(10,600)
-  effort: list(default|low|medium|high|xhigh|max)?
+  effort: list(default|low|medium|high|xhigh|max)
   api_token: password?
   ha_token: password?
   extra_instructions: str?

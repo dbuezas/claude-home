@@ -3,11 +3,8 @@ configuration:
     name: Claude subscription token
     description: Run `claude setup-token` on any computer with Claude Code and paste the sk-ant-oat… token.
   main_model:
-    name: Main model
-    description: Handles every request; fast and cheap. haiku, sonnet or opus (or a full model name).
-  planner_model:
-    name: Planner model
-    description: Subagent the main model delegates complex, multi-step requests to.
+    name: Model
+    description: Handles every request. opus, sonnet or haiku (or a full model name). Opus with low effort was fastest in tests.
   effort:
     name: Effort
     description: Thinking effort of the main model. Lower is faster. "default" uses the model's own default.
