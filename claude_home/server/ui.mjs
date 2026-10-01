@@ -84,11 +84,8 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
   async function saveOptions(changes) {
     const next = { ...readOptions(cfg.optionsFile) };
     for (const [k, clean] of Object.entries(EDITABLE)) if (k in changes) next[k] = clean(changes[k]);
-    // Passcodes are write-only: empty keeps the current one, clear_<name> removes it.
-    for (const k of PASSCODES) {
-      if (changes[`clear_${k}`]) delete next[k];
-      else if (String(changes[k] ?? "").trim()) next[k] = String(changes[k]).trim();
-    }
+    // Empty passcode = feature off.
+    for (const k of PASSCODES) if (k in changes) next[k] = String(changes[k] ?? "").trim();
     for (const k of PASSCODES) {
       if (next[k] && normalize(next[k]).trim().replace(/ /g, "").length < 4) throw new Error("A passcode needs at least 4 letters or digits.");
     }
@@ -104,7 +101,7 @@ export function startUi({ cfg, settings, ask, recent, sessions, readJson, send, 
       const o = readOptions(cfg.optionsFile);
       return {
         ...Object.fromEntries(Object.keys(EDITABLE).map((k) => [k, o[k] ?? ""])),
-        ...Object.fromEntries(PASSCODES.map((k) => [`${k}_set`, !!o[k]])),
+        ...Object.fromEntries(PASSCODES.map((k) => [k, o[k] ?? ""])),
       };
     },
     "POST /api/options": async (req) => { await saveOptions((await readJson(req)) || {}); return { ok: true }; },

@@ -128,11 +128,11 @@
       <h2>Changes that need a passcode</h2>
       <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> changes. It first shows exactly what will change. Nothing happens until your <b>next</b> message contains the passcode. The add-on checks the passcode itself. Claude never sees it, so it can't invent it or say it for you. Any other reply cancels the change. Remote Claude Code can't use passcodes.</div>
       <label for="admin_passcode">Admin passcode: rename things and move them between areas</label>
-      <div class="row"><input class="grow" type="password" id="admin_passcode" autocomplete="new-password"><button type="button" class="secondary" data-clear="admin_passcode">Remove</button></div>
+      <input type="text" id="admin_passcode" autocomplete="off" placeholder="Empty: this feature is off">
       <label for="admin_hint">Reminder question (Claude says it when asking for the admin passcode)</label>
       <input type="text" id="admin_hint" placeholder="E.g. What did grandma always bake?">
       <label for="instructions_passcode">Instructions passcode: let Claude edit its own extra instructions</label>
-      <div class="row"><input class="grow" type="password" id="instructions_passcode" autocomplete="new-password"><button type="button" class="secondary" data-clear="instructions_passcode">Remove</button></div>
+      <input type="text" id="instructions_passcode" autocomplete="off" placeholder="Empty: this feature is off">
       <label for="instructions_hint">Reminder question for the instructions passcode</label>
       <input type="text" id="instructions_hint">
       <div class="hint">Use words that are easy to say and that speech recognition gets right, e.g. "purple pancake". Case and punctuation don't matter. People in the room can hear it when you speak it.</div>
@@ -242,12 +242,7 @@ loaders.settings = async () => {
       $("#" + k).innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
     }
     FIELDS.forEach((k) => ($("#" + k).value = o[k] || (k === "effort" ? "default" : "")));
-    for (const k of PASS) {
-      $("#" + k).value = "";
-      $("#" + k).placeholder = o[`${k}_set`] ? "Set. Type a new one to change it." : "Not set: this feature is off";
-      document.querySelector(`[data-clear="${k}"]`).disabled = !o[`${k}_set`];
-    }
-    HINTS.forEach((k) => ($("#" + k).value = o[k] || ""));
+    [...PASS, ...HINTS].forEach((k) => ($("#" + k).value = o[k] || ""));
   }
   catch (e) { toast(e.message); }
 };
@@ -263,10 +258,7 @@ $("#passform").onsubmit = async (e) => {
   catch (err) { toast(`Not saved: ${err.message}`); }
   $("#savepass").disabled = false;
 };
-document.querySelectorAll("[data-clear]").forEach((b) => (b.onclick = async () => {
-  try { await api("api/options", { [`clear_${b.dataset.clear}`]: true }); toast("Removed"); await loaders.settings(); }
-  catch (err) { toast(err.message); }
-}));
+
 
 // ---- devices
 let ents = [];
