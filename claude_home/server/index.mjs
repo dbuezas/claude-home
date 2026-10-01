@@ -149,7 +149,7 @@ async function ask(key, text) {
     }
     Object.assign(entry, { reply: r.text, tools: r.tools, ms: Date.now() - t0 });
     sessions.set(key, { sid: r.sid, last: Date.now() });
-    log(`[${key}] ${r.ms ?? "?"}ms ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
+    log(`[${key}] ${settings().mainModel} ${r.ms ?? "?"}ms tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;
   });
   queues.set(key, job);
