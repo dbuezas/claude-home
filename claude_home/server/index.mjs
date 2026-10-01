@@ -1,7 +1,6 @@
 // Claude Home add-on server.
 //   :8099 (API, bearer token)
 //     POST /conversation  -> used by the HA custom component (Assist agent)
-//     POST /mcp           -> MCP endpoint (tool: ask_home) for remote Claude Code
 //     GET  /health
 //   :8098 (Ingress web UI, only reachable through Home Assistant) -> see ui.mjs
 //   127.0.0.1:8097 (passcode-gated admin tools, per-turn token) -> see admin.mjs
@@ -12,9 +11,6 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { supervisor, readOptions, writeOptions } from "./ha.mjs";
 import { timingSafeEqual } from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { z } from "zod";
 import { startUi } from "./ui.mjs";
 import { createAdmin } from "./admin.mjs";
 
@@ -151,32 +147,6 @@ async function ask(key, text) {
   try { return await job; } finally { if (queues.get(key) === job) queues.delete(key); }
 }
 
-// ---- MCP endpoint for remote Claude Code ------------------------------------
-function buildMcp() {
-  const server = new McpServer({ name: "claude-home", version: "0.2.0" });
-  server.registerTool(
-    "ask_home",
-    {
-      description:
-        "Ask the home's Claude agent (inside Home Assistant) to do or check something in the house: control devices, read states, run multi-step routines. Pass conversation_id from a previous result to continue that conversation.",
-      inputSchema: {
-        prompt: z.string().describe("What to do or ask, in natural language"),
-        conversation_id: z.string().optional().describe("Continue a previous conversation"),
-      },
-    },
-    async ({ prompt, conversation_id }) => {
-      const key = `mcp:${conversation_id || crypto.randomUUID()}`;
-      try {
-        const r = await ask(key, prompt);
-        return { content: [{ type: "text", text: `${r.text}\n\n[conversation_id: ${key.slice(4)}]` }] };
-      } catch (e) {
-        return { isError: true, content: [{ type: "text", text: e.message }] };
-      }
-    },
-  );
-  return server;
-}
-
 // ---- HTTP --------------------------------------------------------------------
 function authorized(req) {
   const h = req.headers.authorization || "";
@@ -211,16 +181,6 @@ http
         if (!text) return send(res, 400, { error: "text required" });
         const r = await ask(`ha:${conversation_id || crypto.randomUUID()}`, text);
         return send(res, 200, { speech: r.text });
-      }
-
-      if (url.pathname === "/mcp") {
-        if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
-        const body = await readJson(req);
-        const server = buildMcp();
-        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-        res.on("close", () => { transport.close(); server.close(); });
-        await server.connect(transport);
-        return transport.handleRequest(req, res, body);
       }
 
       send(res, 404, { error: "not found" });

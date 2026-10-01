@@ -13,7 +13,7 @@ export CLAUDE_CODE_OAUTH_TOKEN="$(bashio::config 'claude_oauth_token')"
 export DISABLE_AUTOUPDATER=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
-# --- token that HA / remote Claude Code use to call this add-on ---
+# --- token the HA integration uses to call this add-on ---
 if bashio::config.has_value 'api_token'; then
   API_TOKEN="$(bashio::config 'api_token')"
 else
@@ -53,7 +53,7 @@ if bashio::discovery "claude_home" "$(jq -n --arg h "$HOSTNAME_SELF" --arg t "$A
 else
   bashio::log.warning "Discovery failed; add the integration manually (host ${HOSTNAME_SELF}, port 8099, token below)."
 fi
-bashio::log.info "API token (for the integration or remote Claude Code): ${API_TOKEN}"
+bashio::log.info "API token (for the integration): ${API_TOKEN}"
 
 cd /opt/server
 exec node index.mjs

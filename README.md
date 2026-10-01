@@ -4,13 +4,10 @@ Claude Code, logged in with **your Claude subscription**, running as a Home Assi
 
 - **Assist conversation agent** – talk to it from the HA app, dashboards or voice satellites. Multi-turn: follow-ups like "and the bedroom too" keep context until the conversation has been idle for 15 min (configurable).
 - **Fast by default** – Opus with low effort. In tests it was faster than Haiku on multi-step questions (Haiku makes more tool calls) and more accurate.
-- **MCP server for remote Claude Code** – other machines get an `ask_home` tool.
-- **Locked down** – Claude only gets HA's MCP tools (entities exposed to Assist) No shell, no file access, no web, no subagents.
+- **Locked down** – Claude only gets HA's MCP tools (entities exposed to Assist). No shell, no file access, no web, no subagents.
 
 ```
 Assist ──► custom_components/claude_home ──HTTP+token──► add-on ──► claude -p (opus, low effort) ──► HA MCP server
-                                                            ▲
-remote Claude Code ──MCP (ask_home)─────────────────────────┘
 ```
 
 Requires HA OS or Supervised (it's an add-on) and HA 2025.8+.
@@ -49,19 +46,7 @@ How a change works:
 2. The add-on (not Claude) answers with the exact list and the passcode to say.
 3. The change waits until one of your messages contains the passcode (up to 10 minutes). The add-on checks it, does exactly the stored list, and tells Claude the result. A misheard word does not cancel it; saying no or asking for something else does.
 
-The passcode is not a secret. It proves the "yes" came from you: the add-on only looks for it in your own message, never in anything Claude writes. Remote Claude Code can't use it.
-
-## Remote Claude Code
-
-Add-on → Configuration → Network: map `8099`. Then on the other computer:
-
-```sh
-claude mcp add --transport http home http://homeassistant.local:8099/mcp \
-  --header "Authorization: Bearer <API token from the add-on log>"
-```
-
-`ask_home` returns a `conversation_id`; pass it back to continue the same conversation.
-Away from home, use the Tailscale add-on. **Never port-forward this to the internet.**
+The passcode is not a secret. It proves the "yes" came from you: the add-on only looks for it in your own message, never in anything Claude writes.
 
 ## Options
 
@@ -71,12 +56,13 @@ Away from home, use the Tailscale add-on. **Never port-forward this to the inter
 | `effort` | `low` | Thinking effort; lower is faster |
 | `session_idle_minutes` | 15 | Conversation context lifetime |
 | `request_timeout` | 120 | Seconds per request |
-| `api_token` | auto | Token for the integration / remote clients |
+| `api_token` | auto | Token for the integration |
 | `ha_token` | – | Long-lived HA token, only if the Supervisor token can't reach `/api/mcp` (the log warns you) |
 | `extra_instructions` | – | Appended to the system prompt (room nicknames, house quirks) |
 
 ## Notes
 
+- No port is opened on your network. Only Home Assistant can reach the add-on.
 - Each request spawns `claude -p`; expect about 5–8 seconds. Fine for chat, noticeable for voice.
 - Every request counts against your subscription's usage limits.
 - Automated use of a consumer subscription: check Anthropic's current terms for your plan.

@@ -71,15 +71,12 @@ export function createAdmin({ cfg, log }) {
   // Applies a pending plan if this message confirms it. Returns the text for Claude.
   async function beforeTurn(key, text) {
     await enforceProtected();
-    const source = key.split(":")[0];
     let pending = plans.get(key);
     if (pending && Date.now() - pending.at > PLAN_TTL_MS) { plans.delete(key); pending = null; }
     const said = enabled() && containsPasscode(text, passcode());
 
     let note = "";
-    if (said && source === "mcp") {
-      note = "The message contains the passcode, but the passcode doesn't work from remote Claude Code. Nothing was done.";
-    } else if (said && pending) {
+    if (said && pending) {
       plans.delete(key);
       try {
         const results = (await pending.run()).filter(Boolean);
@@ -98,7 +95,7 @@ export function createAdmin({ cfg, log }) {
 
   // ---- while Claude runs: per-turn MCP access ------------------------------
   function grantFor(key) {
-    if (key.startsWith("mcp:") || !enabled()) return { servers: {}, release: () => {}, grant: null };
+    if (!enabled()) return { servers: {}, release: () => {}, grant: null };
     const grant = randomBytes(24).toString("hex");
     grants.set(grant, key);
     return {

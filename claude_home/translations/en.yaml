@@ -15,7 +15,7 @@ configuration:
     name: Request timeout (seconds)
   api_token:
     name: API token
-    description: Token HA and remote Claude Code use to call this add-on. Leave empty to auto-generate (shown in the log).
+    description: Token the Home Assistant integration uses to call this add-on. Leave empty to auto-generate (shown in the log).
   ha_token:
     name: Home Assistant long-lived token
     description: Optional. Only needed if the add-on can't reach HA's MCP server with its built-in Supervisor token.
@@ -28,5 +28,3 @@ configuration:
   protected_entities:
     name: Protected entities
     description: Entity ids hidden from Assist. Claude can only read or use them after you confirm with the passcode. Easier to manage on the Claude page (Devices tab).
-network:
-  8099/tcp: Only needed for remote Claude Code (MCP). Leave empty to keep it internal.

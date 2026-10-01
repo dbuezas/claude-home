@@ -1,7 +1,7 @@
 name: Claude Home
-version: "0.5.1"
+version: "0.6.0"
 slug: claude_home
-description: Claude Code (your Claude subscription) as a Home Assistant conversation agent and MCP server
+description: Claude Code (your Claude subscription) as a Home Assistant conversation agent
 url: https://github.com/dbuezas/claude-home
 arch:
   - amd64
@@ -17,10 +17,6 @@ panel_icon: mdi:robot-happy-outline
 panel_title: Claude
 discovery:
   - claude_home
-ports:
-  8099/tcp: null
-ports_description:
-  8099/tcp: "Only needed for remote Claude Code (MCP). Leave empty to keep it internal."
 options:
   claude_oauth_token: ""
   main_model: opus
