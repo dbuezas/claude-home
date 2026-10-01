@@ -32,6 +32,20 @@ HA then shows **Claude Home discovered** under Settings → Devices & services �
 **4. Use it** – Settings → Voice assistants → your assistant → Conversation agent: **Claude Home**.
 Enable *Prefer handling commands locally* so "turn off the kitchen light" stays instant and only real questions go to Claude.
 
+## Changes that need a passcode
+
+Set passcodes on the add-on's web page (sidebar → Claude → Settings). Without a passcode, the feature is off.
+
+- **Admin passcode**: Claude may rename entities, devices and areas, create areas, and move things between areas.
+- **Instructions passcode**: Claude may edit its own extra instructions ("remember that…").
+
+How it works:
+1. You ask for a change. Claude can only *propose* it.
+2. The add-on (not Claude) adds the exact list of changes to the reply, plus your reminder question.
+3. Your **next** message must contain the passcode. The add-on checks it, applies the stored list, and answers itself. Any other reply cancels.
+
+Claude never sees a passcode: messages that contain one never reach Claude, and the log hides them. So Claude can't invent a passcode or say it for you. Remote Claude Code can't use passcodes.
+
 ## Remote Claude Code
 
 Add-on → Configuration → Network: map `8099`. Then on the other computer:
