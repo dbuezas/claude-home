@@ -110,6 +110,8 @@
       <input type="text" id="main_model" list="models">
       <label for="planner_model">Planner model (for complex, multi-step requests)</label>
       <input type="text" id="planner_model" list="models">
+      <label for="effort">Effort (lower is faster; applies to the main model)</label>
+      <select id="effort"><option value="default">Model default</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select>
       <div class="grid">
         <div><label for="session_idle_minutes">Conversation memory (minutes)</label><input type="number" id="session_idle_minutes" min="1" max="1440"></div>
         <div><label for="request_timeout">Request timeout (seconds)</label><input type="number" id="request_timeout" min="10" max="600"></div>
@@ -177,7 +179,7 @@ loaders.status = async () => {
     const s = statusCache = await api("api/status");
     $("#stats").innerHTML = [
       ["Home Assistant tools", s.mcp.ok ? `<span class="ok">Connected</span> · ${s.mcp.tools.length} tools` : `<span class="bad">Not reachable</span>`],
-      ["Main model", esc(s.models.main)],
+      ["Main model", `${esc(s.models.main)} · effort ${esc(s.models.effort)}`],
       ["Planner model", esc(s.models.planner)],
       ["Open conversations", s.sessions],
       ["Claude Code", esc(s.claudeVersion)],
@@ -214,9 +216,9 @@ $("#chatform").onsubmit = async (e) => {
 };
 
 // ---- settings
-const FIELDS = ["main_model", "planner_model", "session_idle_minutes", "request_timeout", "extra_instructions"];
+const FIELDS = ["main_model", "planner_model", "effort", "session_idle_minutes", "request_timeout", "extra_instructions"];
 loaders.settings = async () => {
-  try { const o = await api("api/options"); FIELDS.forEach((k) => ($("#" + k).value = o[k] ?? "")); }
+  try { const o = await api("api/options"); FIELDS.forEach((k) => ($("#" + k).value = o[k] || (k === "effort" ? "default" : ""))); }
   catch (e) { toast(e.message); }
 };
 $("#settingsform").onsubmit = async (e) => {

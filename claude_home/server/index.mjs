@@ -43,6 +43,7 @@ function settings() {
     plannerModel: o.planner_model || "opus",
     idleMs: Number(o.session_idle_minutes || 15) * 60_000,
     timeoutMs: Number(o.request_timeout || 120) * 1000,
+    effort: o.effort && o.effort !== "default" ? o.effort : "",
     extra: o.extra_instructions || "",
   };
 }
@@ -89,6 +90,7 @@ function runClaude(text, sid) {
     "--agents", agents(s),
     "--append-system-prompt", systemPrompt(s),
   ];
+  if (s.effort) args.push("--effort", s.effort);
   if (sid) args.push("--resume", sid);
 
   return new Promise((resolve, reject) => {
