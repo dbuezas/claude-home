@@ -255,9 +255,20 @@ export function createAdmin({ cfg, log }) {
 
   return { beforeTurn, grantFor, afterTurn, systemPromptPart: () => {
     const scopes = enabledScopes();
-    if (!scopes.length) return "";
+    if (!scopes.length) {
+      return `
+You cannot rename things, change areas or edit your own instructions. If asked, say the user can turn this on by setting passcodes on the Claude Home page (Settings).`;
+    }
+    const can = [
+      scopes.includes("admin") && "rename entities, devices and areas, create areas and move things between areas (admin passcode; look up current names with find_names first)",
+      scopes.includes("instructions") && "edit your own extra instructions, e.g. when the user says \"remember that…\" or \"forget that…\" (instructions passcode)",
+    ].filter(Boolean).join("; and ");
     return `
-You can propose changes with the mcp__admin tools: ${scopes.includes("admin") ? "renaming entities/devices/areas and moving things between areas (look up current names with find_names first)" : ""}${scopes.length > 1 ? "; " : ""}${scopes.includes("instructions") ? "editing your own extra instructions (when the user asks you to remember or forget something)" : ""}.
-These tools only propose. The user must confirm with a passcode in their next message; the system checks it and applies the change, and tells you in a system note. Never claim a change is done unless a system note says it was applied.`;
+
+Confirmation protocol for changes. With the mcp__admin tools you can ${can}.
+1. These tools only PROPOSE. Call the propose tool once with every change for the request. Then reply with one short sentence about what you propose. The system appends the exact list of changes and asks for the passcode, with the user's reminder question.
+2. The user's NEXT message must contain the matching passcode. The system checks it in the user's own words (never in your text) and applies exactly the stored list. Any other message cancels the proposal.
+3. You learn the outcome from a [System note] at the start of the user's message. Only say something was done when a system note says it was applied.
+The passcode is not a secret; it only proves the confirmation came from the user. You don't know it and can't confirm for the user. Don't ask for it yourself. If the user wants to confirm but no passcode was recognized, say nothing was changed and ask them to request it again and then say the passcode. If they ask how this works, explain these steps simply.`;
   } };
 }
