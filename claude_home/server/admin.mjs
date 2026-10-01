@@ -37,7 +37,8 @@ export function createAdmin({ cfg, log }) {
 
   function confirmPrompt(scope) {
     const o = options(), { hint, label } = SCOPES[scope];
-    return `To confirm, say your ${label}.${o[hint] ? ` Hint: ${o[hint]}` : ""} Anything else cancels.`;
+    const h = String(o[hint] || "").trim();
+    return `To confirm, say your ${label}.${h ? ` Hint: ${/[.?!]$/.test(h) ? h : h + "."}` : ""} Anything else cancels.`;
   }
 
   // ---- before Claude runs -------------------------------------------------
