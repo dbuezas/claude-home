@@ -42,9 +42,9 @@ Set passcodes on the add-on's web page (sidebar → Claude → Settings). Withou
 How it works:
 1. You ask for a change. Claude can only *propose* it.
 2. The add-on (not Claude) adds the exact list of changes to the reply, plus your reminder question.
-3. Your **next** message must contain the passcode. The add-on checks it, applies the stored list, and answers itself. Any other reply cancels.
+3. Your **next** message must contain the passcode. The add-on checks it, applies the stored list, and tells Claude what was applied. Any other reply cancels.
 
-Claude never sees a passcode: messages that contain one never reach Claude, and the log hides them. So Claude can't invent a passcode or say it for you. Remote Claude Code can't use passcodes.
+The passcode is not a secret. It proves the "yes" came from you: the add-on only looks for it in your own message, never in anything Claude writes. Remote Claude Code can't use passcodes.
 
 ## Remote Claude Code
 

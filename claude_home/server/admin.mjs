@@ -1,14 +1,12 @@
 // Passcode-gated changes: renaming things in Home Assistant, and editing Claude's
 // own extra instructions.
 //
-// Claude can only PROPOSE changes (tools on a local MCP server). Nothing is written
-// until the user's next message contains the matching passcode. That check happens
-// here, on the raw user text, before Claude sees it:
-//   - Claude never receives the passcode, so it can't repeat or invent it.
-//   - A message with a passcode never reaches Claude at all; the server applies the
-//     plan it stored itself and answers directly.
-//   - The plan is only valid for the very next message, and the server (not Claude)
-//     appends the exact list of changes to the reply, so what you confirm is what runs.
+// Claude can only PROPOSE changes (tools on a local MCP server). The server stores
+// the exact plan and appends it to the reply. The passcode is not a secret: it only
+// proves the confirmation came from the user. The server checks it on the user's
+// raw message (never on anything Claude writes), and only in the message right
+// after the proposal. If it matches, the server applies the stored plan, then
+// Claude gets the message plus a note saying what was applied.
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -30,7 +28,6 @@ export const SCOPES = {
 export function createAdmin({ cfg, log }) {
   const grants = new Map(); // per-turn bearer token -> { key, scopes }
   const plans = new Map(); // conversation key -> { scope, lines, run, grant }
-  const notes = new Map(); // conversation key -> note for Claude's next turn
 
   const options = () => readOptions(cfg.optionsFile);
   const enabledScopes = () => Object.keys(SCOPES).filter((s) => normalize(options()[SCOPES[s].passcode]).trim());
@@ -42,7 +39,7 @@ export function createAdmin({ cfg, log }) {
   }
 
   // ---- before Claude runs -------------------------------------------------
-  // Returns { reply } to answer without Claude, or { text } to send to Claude.
+  // Applies a pending plan if this message confirms it. Returns the text for Claude.
   async function beforeTurn(key, text) {
     const o = options();
     const source = key.split(":")[0];
@@ -50,27 +47,23 @@ export function createAdmin({ cfg, log }) {
     plans.delete(key); // a plan is only valid for the very next message
     const said = Object.keys(SCOPES).filter((s) => o[SCOPES[s].passcode] && containsPasscode(text, o[SCOPES[s].passcode]));
 
-    if (said.length) {
-      if (source === "mcp") return { reply: "Passcodes only work from Assist or the Claude Home page, not from remote Claude Code. Nothing was changed." };
-      if (!pending || !said.includes(pending.scope)) {
-        notes.set(key, "The user's last message was handled by the system: there was nothing to confirm, nothing changed.");
-        return { reply: "There is nothing waiting for that passcode, so nothing was changed. Ask for the change first, then say the passcode in your next message." };
-      }
+    let note = "";
+    if (said.length && source === "mcp") {
+      note = "The message contains a passcode, but passcodes don't work from remote Claude Code. Nothing was changed.";
+    } else if (said.length && pending && said.includes(pending.scope)) {
       try {
         await pending.run();
-        notes.set(key, `The user confirmed with the passcode and the system applied: ${pending.lines.join("; ")}.`);
         log(`[${key}] applied ${pending.scope} plan: ${pending.lines.join("; ")}`);
-        return { reply: `Done. ${pending.lines.join(". ")}.` };
+        note = `The user confirmed with the passcode and the system applied: ${pending.lines.join("; ")}. Confirm briefly.`;
       } catch (e) {
-        notes.set(key, `The user confirmed, but applying failed: ${e.message}`);
-        return { reply: `That failed: ${e.message}. Some changes may have been applied.` };
+        note = `The user confirmed with the passcode, but applying failed: ${e.message}. Some changes may have been applied.`;
       }
+    } else if (said.length) {
+      note = "The message contains a passcode, but nothing was waiting for it, so nothing was changed. Changes must be proposed first, then confirmed in the next message.";
+    } else if (pending) {
+      note = "The user did not give the passcode, so the proposed changes were discarded.";
     }
-
-    let note = notes.get(key);
-    notes.delete(key);
-    if (pending) note = `${note ? note + " " : ""}The user did not give the passcode, so the proposed changes were discarded. If they still want them, propose again.`;
-    return { text: note ? `[System note: ${note}]\n${text}` : text };
+    return note ? `[System note: ${note}]\n${text}` : text;
   }
 
   // ---- while Claude runs: per-turn MCP access ------------------------------
@@ -177,7 +170,7 @@ export function createAdmin({ cfg, log }) {
   // ---- the local MCP server Claude talks to ---------------------------------
   const text = (t) => ({ content: [{ type: "text", text: t }] });
   const fail = (t) => ({ isError: true, ...text(t) });
-  const PROPOSED = "Proposal stored. The system will append the exact list of changes and ask the user for the passcode. In your reply, say in one short sentence what you propose; do not list the changes again, do not ask for or mention a passcode, and never say it is done.";
+  const PROPOSED = "Proposal stored. The system will append the exact list of changes and ask the user for the passcode. In your reply, say in one short sentence what you propose; do not list the changes again or ask for the passcode (the system does), and never say it is done.";
 
   function buildServer({ key, scopes, grant }) {
     const server = new McpServer({ name: "claude-home-admin", version: "0.4.0" });
@@ -260,26 +253,11 @@ export function createAdmin({ cfg, log }) {
     })
     .listen(cfg.adminPort, "127.0.0.1", () => log(`claude-home admin tools on 127.0.0.1:${cfg.adminPort}`));
 
-  // Text safe to log: passcodes replaced.
-  function redact(text) {
-    let out = String(text);
-    const o = options();
-    for (const s of Object.values(SCOPES)) {
-      const code = o[s.passcode];
-      if (code && containsPasscode(out, code)) {
-        const words = normalize(code).trim().split(" ").map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-        out = out.replace(new RegExp(words.join("[^\\p{L}\\p{N}]+"), "giu"), "[passcode]");
-        if (containsPasscode(out, code)) out = "[message with passcode]";
-      }
-    }
-    return out;
-  }
-
-  return { beforeTurn, grantFor, afterTurn, redact, systemPromptPart: () => {
+  return { beforeTurn, grantFor, afterTurn, systemPromptPart: () => {
     const scopes = enabledScopes();
     if (!scopes.length) return "";
     return `
 You can propose changes with the mcp__admin tools: ${scopes.includes("admin") ? "renaming entities/devices/areas and moving things between areas (look up current names with find_names first)" : ""}${scopes.length > 1 ? "; " : ""}${scopes.includes("instructions") ? "editing your own extra instructions (when the user asks you to remember or forget something)" : ""}.
-These tools only propose. The user must confirm with a passcode in their next message; the system checks it and applies the change. You never see passcodes. Never ask for, guess or mention a passcode, and never claim a change is done unless a system note says it was applied.`;
+These tools only propose. The user must confirm with a passcode in their next message; the system checks it and applies the change, and tells you in a system note. Never claim a change is done unless a system note says it was applied.`;
   } };
 }

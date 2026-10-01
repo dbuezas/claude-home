@@ -126,7 +126,7 @@
     </form>
     <form class="card" id="passform">
       <h2>Changes that need a passcode</h2>
-      <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> changes. It first shows exactly what will change. Nothing happens until your <b>next</b> message contains the passcode. The add-on checks the passcode itself. Claude never sees it, so it can't invent it or say it for you. Any other reply cancels the change. Remote Claude Code can't use passcodes.</div>
+      <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> changes. It first shows exactly what will change. Nothing happens until your <b>next</b> message contains the passcode. The passcode is not a secret: it proves the "yes" came from you. The add-on checks it in your message only, never in anything Claude writes. Any other reply cancels the change. Remote Claude Code can't use passcodes.</div>
       <label for="admin_passcode">Admin passcode: rename things and move them between areas</label>
       <input type="text" id="admin_passcode" autocomplete="off" placeholder="Empty: this feature is off">
       <label for="admin_hint">Reminder question (Claude says it when asking for the admin passcode)</label>
@@ -135,7 +135,7 @@
       <input type="text" id="instructions_passcode" autocomplete="off" placeholder="Empty: this feature is off">
       <label for="instructions_hint">Reminder question for the instructions passcode</label>
       <input type="text" id="instructions_hint">
-      <div class="hint">Use words that are easy to say and that speech recognition gets right, e.g. "purple pancake". Case and punctuation don't matter. People in the room can hear it when you speak it.</div>
+      <div class="hint">Use words that are easy to say and that speech recognition gets right, e.g. "purple pancake". Case and punctuation don't matter.</div>
       <div class="row" style="margin-top:14px"><button class="primary" id="savepass">Save</button></div>
     </form>
   </section>
