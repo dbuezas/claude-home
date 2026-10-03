@@ -1,14 +1,23 @@
-// Remote Control: a one-time full Claude login, and the `claude remote-control`
-// process that makes this add-on show up in claude.ai/code and the Claude app.
-// Both run as the unprivileged "claude" user. The long-lived token from
-// `claude setup-token` can't do Remote Control; it needs a full login.
+// Remote Control handover: reopen a voice conversation's Claude Code session as an
+// interactive Claude with Remote Control on, so it continues in the Claude app or on
+// claude.ai/code with its full history (messages and tool calls).
+//
+// Interactive Claude needs a terminal; ptyrun.py provides a pseudo-terminal and
+// answers the start-up questions. Everything runs as the unprivileged "claude" user.
+// Remote Control needs a one-time full Claude login (the long-lived token from
+// `claude setup-token` can't do it), done from the web UI.
+//
+// Handed-over sessions show up in the Claude app; they keep running (also across days)
+// until stopped from the web UI, by asking Claude, or by restarting the add-on.
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
+
+const PTYRUN = new URL("./ptyrun.py", import.meta.url).pathname;
 
 export function createRemoteControl({ cfg, user, baseEnv, log }) {
-  let login = null; // { proc, url, output }
-  let rc = null; // { proc, level, output, release }
-  let lastError = ""; // output of the last Remote Control run that failed
+  let login = null; // { proc, url, output, ready }
+  const handovers = new Map(); // id -> { id, name, sid, level, started, url, output, proc, release }
 
   // Remote Control and login must use the full login, not CLAUDE_CODE_OAUTH_TOKEN.
   const env = (extra = {}) => {
@@ -25,18 +34,16 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
       const { stdout } = await promisify(execFile)(cfg.claudeBin, ["auth", "status"], opts());
       const s = JSON.parse(stdout);
       loggedIn = !!s.loggedIn;
-      email = s.email || s.account?.email || null;
+      email = s.email || null;
     } catch {}
     return {
       loggedIn, email,
-      login: login ? { url: login.url, waiting: true } : null,
-      running: !!rc,
-      level: rc?.level ?? null,
-      output: rc ? rc.output.slice(-1500) : "",
-      error: rc ? "" : lastError,
+      login: login ? { url: login.url } : null,
+      sessions: [...handovers.values()].map(({ id, name, level, started, url }) => ({ id, name, level, started, url })),
     };
   }
 
+  // ---- one-time login -------------------------------------------------------
   function startLogin() {
     if (login) return login.ready;
     const proc = spawn(cfg.claudeBin, ["auth", "login"], opts());
@@ -71,44 +78,49 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
   }
 
   async function logout() {
+    stopAll();
     await promisify(execFile)(cfg.claudeBin, ["auth", "logout"], opts()).catch(() => {});
   }
 
-  // level: the access level the remote sessions get (2 or 3); grant: a gateway grant for it.
-  async function start(level, grant) {
-    if (rc) { grant.release(); return status(); }
+  // ---- handover -------------------------------------------------------------
+  // sid: the voice conversation's Claude Code session. grant: gateway grant for `level`.
+  async function handover({ sid, name, level, grant, mcpServers, appendSystemPrompt }) {
     if (!(await status()).loggedIn) { grant.release(); throw new Error("Remote Control needs a one-time Claude login on the Claude Home page (Settings → Remote Control)."); }
-    const proc = spawn(cfg.claudeBin, [
-      "remote-control", "--name", "Home Assistant", "--permission-mode", "bypassPermissions",
-    ], opts({ HA_URL: grant.url, HA_TOKEN: grant.token, CLAUDE_HOME_LEVEL: String(level) }));
-    rc = { proc, level, output: "", release: grant.release };
-    let answered = false;
+    const id = randomUUID().slice(0, 8);
+    const args = [
+      PTYRUN, cfg.claudeBin, "--resume", sid, "--remote-control", name,
+      "--permission-mode", "bypassPermissions",
+      "--mcp-config", JSON.stringify({ mcpServers }), "--strict-mcp-config",
+      "--append-system-prompt", appendSystemPrompt,
+    ];
+    const proc = spawn("python3", args, opts({ HA_URL: grant.url, HA_TOKEN: grant.token, CLAUDE_HOME_LEVEL: String(level) }));
+    const h = { id, name, sid, level, started: new Date().toISOString(), url: null, output: "", proc, release: grant.release };
+    handovers.set(id, h);
     const onData = (d) => {
-      if (rc?.proc !== proc) return;
-      rc.output = (rc.output + d).slice(-20_000);
-      // First run asks for consent on the terminal; the user already unlocked level 2 for this.
-      if (!answered && /Enable Remote Control\?.*\(y\/n\)/i.test(rc.output)) { answered = true; proc.stdin.write("y\n"); }
+      h.output = (h.output + d).slice(-20_000);
+      const m = h.output.replace(/\s+/g, "").match(/https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+/);
+      if (m && !h.url) { h.url = m[0]; log(`handover ${id} "${name}" is live: ${h.url}`); }
     };
     proc.stdout.on("data", onData);
     proc.stderr.on("data", onData);
     proc.on("close", (code) => {
-      const out = rc?.proc === proc ? rc.output.trim() : "";
-      log(`remote-control exited ${code}${out ? `: ${out.slice(-300)}` : ""}`);
-      if (code) lastError = out.slice(-500) || `exited with code ${code}`;
-      if (rc?.proc === proc) { rc.release(); rc = null; }
+      log(`handover ${id} "${name}" ended (${code})${h.url ? "" : `: ${h.output.trim().slice(-300)}`}`);
+      h.release();
+      handovers.delete(id);
     });
-    lastError = "";
-    await new Promise((r) => setTimeout(r, 4000)); // let it register and print its link
-    if (!rc) throw new Error(`Remote Control did not start: ${lastError}`);
-    log(`remote-control started at level ${level}`);
-    return status();
+    // Wait for Remote Control to report its link.
+    for (let i = 0; i < 40 && !h.url && handovers.has(id); i++) await new Promise((r) => setTimeout(r, 500));
+    if (!handovers.has(id)) throw new Error(`The handover did not start: ${h.output.trim().slice(-300)}`);
+    return { id, name, url: h.url };
   }
 
-  function stop() {
-    if (!rc) return false;
-    rc.proc.kill("SIGTERM");
+  function stop(id) {
+    const h = handovers.get(id);
+    if (!h) return false;
+    h.proc.kill("SIGTERM");
     return true;
   }
+  function stopAll() { for (const id of handovers.keys()) stop(id); }
 
-  return { status, startLogin, submitCode, logout, start, stop };
+  return { status, startLogin, submitCode, logout, handover, stop, stopAll };
 }

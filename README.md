@@ -35,7 +35,7 @@ Enable *Prefer handling commands locally* so "turn off the kitchen light" stays 
 |---|---|---|
 | 0 | – | Read every entity; control what is exposed to Assist |
 | 1 | "unlock protected entities" | Control protected devices, rename things, areas, Claude's own instructions, the protected list |
-| 2 | "unlock full access" | Commands, internet, all of Home Assistant core, Remote Control |
+| 2 | "unlock full access" | Commands, internet, all of Home Assistant core, continuing in the Claude app |
 | 3 | "unlock supervisor" | Also add-ons, backups, updates, the host |
 
 How unlocking works:
@@ -50,9 +50,13 @@ How it is enforced:
 - Below level 2, Claude has no shell, no files and no internet: only Home Assistant's Assist tools and the add-on's own tools.
 - Protected devices are hidden from Assist, so the Assist tools can't control them (not even with "turn off the living room"). Scripts, scenes or groups that include a protected device are side doors.
 
-## Remote Control
+## Continue in the Claude app
 
-At level 2 ("unlock full access"), Claude can start Remote Control. A machine called "Home Assistant" then shows up in the Claude app and on claude.ai/code; a session you start there runs inside the add-on with the same level. Remote Control needs a one-time login (Settings → Remote Control); the token from the Configuration tab can't do it. It runs until you stop it (Settings) or restart the add-on.
+At level 2 ("unlock full access"), say "continue this in the app". The add-on reopens the same Claude Code session, with its full history (messages and tool calls) and the same level, as an interactive Claude with Remote Control on. It shows up in the Claude app and on claude.ai/code under the title Claude gave it. Your next voice message starts a fresh conversation, so only one place owns the session.
+
+App sessions keep running, also across days, until you stop them (sidebar → Claude → Settings, or ask Claude "stop my app sessions") or restart the add-on. In the app, the level can't be raised; unlock it by voice first.
+
+This needs a one-time login to your Claude account (Settings → Remote Control); the token from the Configuration tab can't do Remote Control.
 
 ## Options
 

@@ -4,7 +4,8 @@
 //   level 1  "unlock protected entities" : control protected entities, rename things, areas, edit own
 //                       instructions, change the protected list.
 //   level 2  "unlock full access" : Bash, internet, all of Home Assistant core
-//                       (through the gateway in proxy.mjs), Remote Control.
+//                       (through the gateway in proxy.mjs), handing the conversation
+//                       over to the Claude app (rc.mjs).
 //   level 3  "unlock supervisor"  : also the Supervisor API (add-ons, backups, updates, host).
 //
 // Handshake: Claude calls request_unlock(level, reason). The server replaces Claude's
@@ -32,7 +33,7 @@ export const containsPasscode = (text, code) => normalize(code).trim() !== "" &&
 
 export const LEVELS = {
   1: { phrase: "unlock protected entities", name: "protected entities", what: "control protected devices, rename things, change areas, edit my instructions and the protected list" },
-  2: { phrase: "unlock full access", name: "full access", what: "run commands, use the internet, change anything in Home Assistant and start Remote Control" },
+  2: { phrase: "unlock full access", name: "full access", what: "run commands, use the internet, change anything in Home Assistant and continue the conversation in the Claude app" },
   3: { phrase: "unlock supervisor", name: "supervisor", what: "also manage add-ons, backups, updates and the host" },
 };
 
@@ -42,6 +43,7 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
   const grants = new Map(); // per-turn bearer token -> conversation key
   const levels = new Map(); // conversation key -> { level, last }
   const requests = new Map(); // conversation key -> { level, reason, grant } (valid for the next message only)
+  const handovers = new Map(); // conversation key -> { grant, title } (continue_in_app called this turn)
   let protectedNames = new Map(); // entity_id -> friendly name (for the system prompt)
   let lastEnforced = 0;
 
@@ -123,6 +125,27 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
       release: () => { grants.delete(grant); gw.release(); },
     };
   }
+
+  // After Claude's turn: was a handover to the app requested?
+  function takeHandover(key, grant) {
+    const h = handovers.get(key);
+    handovers.delete(key);
+    return h && h.grant === grant ? h : null;
+  }
+
+  // Tools for a handed-over app session: same level, never expires (ends when the session is stopped).
+  function appAccess(level) {
+    const key = `app:${randomBytes(6).toString("hex")}`;
+    levels.set(key, { level, last: Number.MAX_SAFE_INTEGER });
+    const grant = randomBytes(24).toString("hex");
+    grants.set(grant, key);
+    return {
+      server: { type: "http", url: `http://127.0.0.1:${cfg.adminPort}/mcp`, headers: { Authorization: `Bearer ${grant}` } },
+      release: () => { grants.delete(grant); levels.delete(key); },
+    };
+  }
+
+  function resetLevel(key) { levels.delete(key); requests.delete(key); }
 
   // After Claude's turn: if it asked to unlock, the reply is replaced by the exact request.
   function afterTurn(key, grant) {
@@ -301,6 +324,7 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
       },
     }, async ({ level, reason }) => {
       if (levelOf(key) >= level) return text(`Already at level ${levelOf(key)}; go ahead.`);
+      if (key.startsWith("app:")) return fail("Levels can't be raised from the app. The user can start a new voice conversation, unlock the level there and hand it over again.");
       if (!available(level)) return fail(`Level ${level} (${LEVELS[level].name}) is turned off, so it can't be unlocked. The user can allow it on the Claude Home page (Settings).`);
       requests.set(key, { level, reason, grant });
       return text("Request stored. The system will ask the user for the unlock phrase. End your turn now with a short reply.");
@@ -342,18 +366,25 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
       return text("Saved. It applies from the next message.");
     });
 
-    server.registerTool("remote_control", {
-      description: "Level 2. Start, stop or check Remote Control, which lets the user continue in the Claude app or claude.ai/code on a machine called \"Home Assistant\" (a new session there, with this conversation's access level).",
-      inputSchema: { action: z.enum(["start", "stop", "status"]) },
-    }, async ({ action }) => {
-      if (action !== "status" && levelOf(key) < 2) return locked(2, key);
-      try {
-        if (action === "stop") return text(remote.stop() ? "Remote Control stopped." : "Remote Control was not running.");
-        const s = action === "start" ? await remote.start(levelOf(key), { url: gateway.url, ...gateway.grant(levelOf(key)) }) : await remote.status();
-        return text(s.running
-          ? `Remote Control is running (level ${s.level}). Tell the user to open the Claude app or claude.ai/code and pick the "Home Assistant" machine. Output: ${s.output.slice(-600)}`
-          : s.loggedIn ? "Remote Control is not running." : "Remote Control needs a one-time Claude login on the Claude Home page (Settings → Remote Control).");
-      } catch (e) { return fail(e.message); }
+    server.registerTool("continue_in_app", {
+      description: "Level 2. Hand this conversation over to the Claude app / claude.ai/code: after your turn, the system reopens this exact session there (full history, same level) with Remote Control. Voice then starts fresh next time. End your turn with a short reply.",
+      inputSchema: { title: z.string().max(60).describe("short session title shown in the app") },
+    }, async ({ title }) => {
+      if (levelOf(key) < 2) return locked(2, key);
+      if (key.startsWith("app:")) return fail("This conversation is already in the app.");
+      handovers.set(key, { grant, title });
+      return text("Handover scheduled for the end of this turn. End your turn now with a short reply.");
+    });
+
+    server.registerTool("app_sessions", {
+      description: "List or stop conversations that were handed over to the Claude app (they keep running until stopped). Allowed at any level.",
+      inputSchema: { action: z.enum(["list", "stop"]), id: z.string().optional().describe("session id to stop, or \"all\"") },
+    }, async ({ action, id }) => {
+      const { sessions } = await remote.status();
+      if (action === "list") return text(sessions.length ? sessions.map((h) => `${h.id}: "${h.name}" (level ${h.level}, since ${h.started}) ${h.url || ""}`).join("\n") : "No sessions are running in the app.");
+      if (!id) return fail("Give the id to stop, or \"all\".");
+      if (id === "all") { remote.stopAll(); return text(`Stopped ${sessions.length} session(s).`); }
+      return text(remote.stop(id) ? `Stopped ${id}.` : `No running session ${id}.`);
     });
 
     return server;
@@ -399,5 +430,5 @@ ${lv}
 If a request needs a higher level, call request_unlock with that level and a short reason, then end your turn. The system asks the user for the unlock phrase; the user's very next message must contain it, and then the level stays unlocked for the rest of the conversation. An unlock phrase said at any other time does nothing, and saying it yourself does nothing: the system only checks the user's own words right after a request. The phrases are not secret; tell the user when they ask. Unlocked levels end when the conversation ends.${full}`;
   }
 
-  return { beforeTurn, turnFor, afterTurn, systemPromptPart, setProtected, protectedList, enforceProtected, levelOf };
+  return { beforeTurn, turnFor, afterTurn, takeHandover, appAccess, resetLevel, systemPromptPart, setProtected, protectedList, enforceProtected, levelOf };
 }

@@ -102,7 +102,7 @@
     </form>
     <div class="card">
       <h2>Remote Control</h2>
-      <div class="hint" style="margin:0 0 10px">With level 2 unlocked ("unlock full access"), Claude can start Remote Control. Then a machine called "Home Assistant" shows up in the Claude app and on claude.ai/code. Remote Control needs a one-time login to your Claude account here; the token from the Configuration tab can't do it.</div>
+      <div class="hint" style="margin:0 0 10px">At level 2 ("unlock full access"), say "continue this in the app". The conversation then moves to the Claude app and claude.ai/code, with its full history and the same level. It keeps running, also across days, until you stop it here, ask Claude to stop it, or restart the add-on. This needs a one-time login to your Claude account; the token from the Configuration tab can't do it.</div>
       <div id="rcbody" class="muted">Loading…</div>
     </div>
   </section>
@@ -188,11 +188,16 @@ async function loadRemote() {
     parts.push(s.loggedIn ? `<p><span class="ok">Logged in</span>${s.email ? ` as ${esc(s.email)}` : ""}. <button type="button" class="secondary" id="rclogout">Log out</button></p>`
       : s.login?.url ? `<p>1. Open <a href="${esc(s.login.url)}" target="_blank" rel="noopener">this login link</a> and sign in.</p><p>2. Paste the code you get:</p><form class="row" id="rccodeform"><input class="grow" type="text" id="rccode" autocomplete="off"><button class="primary">Finish login</button></form>`
       : `<p>Not logged in. <button type="button" class="primary" id="rclogin">Log in to Claude</button></p>`);
-    parts.push(s.running ? `<p><span class="ok">Running</span> at level ${s.level}. <button type="button" class="secondary" id="rcstop">Stop</button></p>` : `<p class="muted">Not running. Ask Claude to start it (needs level 2).</p>${s.error ? `<p class="bad">Last error: ${esc(s.error)}</p>` : ""}`);
+    parts.push(s.sessions.length
+      ? `<table><thead><tr><th>Session in the app</th><th>Level</th><th>Since</th><th></th></tr></thead><tbody>${s.sessions.map((h) => `<tr><td>${h.url ? `<a href="${esc(h.url)}" target="_blank" rel="noopener">${esc(h.name)}</a>` : esc(h.name)}</td><td>${h.level}</td><td class="muted">${new Date(h.started).toLocaleString()}</td><td><button type="button" class="secondary" data-stop="${esc(h.id)}">Stop</button></td></tr>`).join("")}</tbody></table>`
+      : `<p class="muted">No conversations running in the app.</p>`);
     $("#rcbody").innerHTML = parts.join("");
     $("#rclogin")?.addEventListener("click", async () => { try { await api("api/remote/login", {}); } catch (e) { toast(e.message); } loadRemote(); });
     $("#rclogout")?.addEventListener("click", async () => { try { await api("api/remote/logout", {}); } catch (e) { toast(e.message); } loadRemote(); });
-    $("#rcstop")?.addEventListener("click", async () => { try { await api("api/remote/stop", {}); } catch (e) { toast(e.message); } setTimeout(loadRemote, 1000); });
+    document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("click", async () => {
+      try { await api("api/remote/stop", { id: b.dataset.stop }); } catch (e) { toast(e.message); }
+      setTimeout(loadRemote, 1500);
+    }));
     $("#rccodeform")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       try { await api("api/remote/code", { code: $("#rccode").value }); toast("Logged in"); } catch (err) { toast(err.message); }

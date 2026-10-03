@@ -75,6 +75,11 @@ Replies are often spoken: answer in one or two short sentences, plain text, no m
 Reply in the language the user used. If you need clarification, ask one short question.${admin.systemPromptPart(level)}
 ${s.extra}`.trim();
 
+// Prompt for a conversation handed over to the Claude app.
+const appPrompt = (s, level) => `You are Claude inside the Claude Home add-on of Home Assistant. This conversation started by voice (Assist) and now continues in the Claude app, so replies no longer need to be short or plain text.
+Use the Home Assistant tools (mcp__ha__*) to read states and control devices.${admin.systemPromptPart(level)}
+${s.extra}`.trim();
+
 
 // ---- sessions: external conversation id -> Claude Code session id ----------
 const sessions = new Map(); // key -> { sid, last }
@@ -155,6 +160,29 @@ async function ask(key, text) {
       turn.release();
     }
     r.text = admin.afterTurn(key, turn.grant) || r.text;
+
+    // continue_in_app: now that this turn's process has exited, reopen the same session
+    // in the Claude app. Voice then starts fresh, so only one process owns the session.
+    const ho = admin.takeHandover(key, turn.grant);
+    if (ho) {
+      const gw = gateway.grant(turn.level);
+      const tools = admin.appAccess(turn.level);
+      try {
+        const h = await remote.handover({
+          sid: r.sid, name: ho.title, level: turn.level,
+          grant: { url: gateway.url, token: gw.token, release: () => { gw.release(); tools.release(); } },
+          mcpServers: { ha: { type: "http", url: `${gateway.url}/core/api/mcp`, headers: { Authorization: `Bearer ${gw.token}` } }, admin: tools.server },
+          appendSystemPrompt: appPrompt(settings(), turn.level),
+        });
+        sessions.delete(key);
+        admin.resetLevel(key);
+        r.text = `This conversation now continues in the Claude app as "${h.name}". Next time you talk to me here, we start fresh.`;
+      } catch (e) {
+        r.text = `The handover didn't work: ${e.message}`;
+      }
+      log(`[${key}] handover: ${r.text}`);
+      return r;
+    }
     sessions.set(key, { sid: r.sid, last: Date.now() });
     log(`[${key}] ${settings().mainModel} L${turn.level} ${r.ms ?? "?"}ms tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;

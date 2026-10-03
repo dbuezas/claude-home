@@ -95,8 +95,12 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
     "GET /api/remote": async () => remote.status(),
     "POST /api/remote/login": async () => remote.startLogin(),
     "POST /api/remote/code": async (req) => remote.submitCode(((await readJson(req)) || {}).code || ""),
-    "POST /api/remote/logout": async () => { remote.stop(); await remote.logout(); return remote.status(); },
-    "POST /api/remote/stop": async () => { remote.stop(); return { ok: true }; },
+    "POST /api/remote/logout": async () => { await remote.logout(); return remote.status(); },
+    "POST /api/remote/stop": async (req) => {
+      const { id } = (await readJson(req)) || {};
+      id === "all" ? remote.stopAll() : remote.stop(id);
+      return { ok: true };
+    },
     "POST /api/protect": async (req) => {
       const { entity_ids, protected: on } = (await readJson(req)) || {};
       if (!Array.isArray(entity_ids) || !entity_ids.length) throw new Error("entity_ids required");
