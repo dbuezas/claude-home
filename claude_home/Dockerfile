@@ -9,7 +9,7 @@ RUN apk add --no-cache nodejs npm libgcc libstdc++ ripgrep jq curl git python3 \
 WORKDIR /opt/server
 COPY server/package.json ./
 RUN npm install --omit=dev
-COPY server/*.mjs server/ui.html server/ptyrun.py ./
+COPY server/*.mjs server/ui.html server/ptyrun.py agent-guide.md ./
 
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
