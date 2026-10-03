@@ -73,6 +73,7 @@ This needs a one-time login to your Claude account (Settings → Remote Control)
 ## Notes
 
 - No port is opened on your network. Only Home Assistant can reach the add-on.
+- Conversation histories are kept on the add-on's storage so they can be resumed; files older than 30 days are deleted automatically (never ones running in the Claude app).
 - Each request spawns `claude -p`; expect about 5–8 seconds. Fine for chat, noticeable for voice.
 - Every request counts against your subscription's usage limits.
 - Automated use of a consumer subscription: check Anthropic's current terms for your plan.

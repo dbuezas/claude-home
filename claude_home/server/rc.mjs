@@ -122,5 +122,7 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
   }
   function stopAll() { for (const id of handovers.keys()) stop(id); }
 
-  return { status, startLogin, submitCode, logout, handover, stop, stopAll };
+  const activeSessions = () => new Set([...handovers.values()].map((h) => h.sid));
+
+  return { status, startLogin, submitCode, logout, handover, stop, stopAll, activeSessions };
 }

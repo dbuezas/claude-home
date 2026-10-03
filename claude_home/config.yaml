@@ -1,5 +1,5 @@
 name: Claude Home
-version: "0.10.2"
+version: "0.10.3"
 slug: claude_home
 description: Claude Code (your Claude subscription) as a Home Assistant conversation agent
 url: https://github.com/dbuezas/claude-home
