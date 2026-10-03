@@ -5,9 +5,9 @@ import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { haWs, readOptions, writeOptions } from "./ha.mjs";
-import { normalize, LEVELS } from "./admin.mjs";
 
-const PASSCODES = Object.values(LEVELS).map((l) => l.option);
+
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -16,6 +16,7 @@ const EDITABLE = {
   main_model: (v) => String(v).trim() || "opus",
   effort: (v) => (["low", "medium", "high", "xhigh", "max"].includes(v) ? v : "default"),
   session_idle_minutes: (v) => Math.min(1440, Math.max(1, Math.round(Number(v) || 15))),
+  max_level: (v) => Math.min(3, Math.max(0, Math.round(Number(v)))),
   request_timeout: (v) => Math.min(600, Math.max(10, Math.round(Number(v) || 120))),
   extra_instructions: (v) => String(v ?? ""),
 };
@@ -77,11 +78,6 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
   async function saveOptions(changes) {
     const next = { ...readOptions(cfg.optionsFile) };
     for (const [k, clean] of Object.entries(EDITABLE)) if (k in changes) next[k] = clean(changes[k]);
-    // Empty passcode = that level can't be unlocked.
-    for (const k of PASSCODES) if (k in changes) next[k] = String(changes[k] ?? "").trim();
-    const set = PASSCODES.map((k) => next[k]).filter(Boolean).map((p) => normalize(p).trim());
-    if (set.some((p) => p.replace(/ /g, "").length < 4)) throw new Error("Each passcode needs at least 4 letters or digits.");
-    if (set.some((p, i) => set.some((q, j) => i !== j && ` ${p} `.includes(` ${q} `)))) throw new Error("The passcodes must all differ, and none may contain another.");
     await writeOptions(cfg.optionsFile, next);
   }
 
@@ -92,7 +88,6 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
       const o = readOptions(cfg.optionsFile);
       return {
         ...Object.fromEntries(Object.keys(EDITABLE).map((k) => [k, o[k] ?? ""])),
-        ...Object.fromEntries(PASSCODES.map((k) => [k, o[k] ?? ""])),
       };
     },
     "POST /api/options": async (req) => { await saveOptions((await readJson(req)) || {}); return { ok: true }; },

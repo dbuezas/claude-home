@@ -89,20 +89,20 @@
       <div class="row" style="margin-top:14px"><button class="primary" id="savesettings">Save</button></div>
     </form>
     <form class="card" id="passform">
-      <h2>Passcodes</h2>
-      <div class="hint" style="margin:0 0 4px">Each passcode unlocks one level for the rest of a conversation. Claude must <b>ask</b> for a level first, and your <b>very next</b> message must contain its passcode. Said at any other time, a passcode does nothing. The passcodes are not secret: they prove the "yes" came from you. The add-on checks them in your words only, never in anything Claude writes. An empty box means that level is off.</div>
-      <label for="passcode">Level 1 · Changes: control protected devices, rename things, areas, Claude's own instructions, the protected list</label>
-      <input type="text" id="passcode" autocomplete="off" placeholder="Empty: level 1 is off">
-      <label for="full_access_passcode">Level 2 · Full access: commands, internet, all of Home Assistant, Remote Control</label>
-      <input type="text" id="full_access_passcode" autocomplete="off" placeholder="Empty: level 2 is off">
-      <label for="supervisor_passcode">Level 3 · Supervisor: also add-ons, backups, updates, the host</label>
-      <input type="text" id="supervisor_passcode" autocomplete="off" placeholder="Empty: level 3 is off">
-      <div class="hint">Use words that are easy to say and that speech recognition gets right, e.g. "purple pancake". Case and punctuation don't matter.</div>
+      <h2>Access levels</h2>
+      <div class="hint" style="margin:0 0 4px">Claude must <b>ask</b> for a level first. Your <b>very next</b> message must contain the phrase. Then the level stays unlocked for the rest of the conversation. Said at any other time, the phrase does nothing. The add-on checks it in your words only, never in anything Claude writes.</div>
+      <table style="margin-top:8px"><tbody>
+        <tr><td><b>1</b></td><td><code>unlock changes</code></td><td>control protected devices, rename things, areas, Claude's own instructions, the protected list</td></tr>
+        <tr><td><b>2</b></td><td><code>unlock full access</code></td><td>commands, internet, all of Home Assistant, Remote Control</td></tr>
+        <tr><td><b>3</b></td><td><code>unlock supervisor</code></td><td>also add-ons, backups, updates, the host</td></tr>
+      </tbody></table>
+      <label for="max_level">Highest level Claude may ask for</label>
+      <select id="max_level"><option value="0">0 · none (read and Assist only)</option><option value="1">1 · changes</option><option value="2">2 · full access</option><option value="3">3 · supervisor</option></select>
       <div class="row" style="margin-top:14px"><button class="primary" id="savepass">Save</button></div>
     </form>
     <div class="card">
       <h2>Remote Control</h2>
-      <div class="hint" style="margin:0 0 10px">With level 2 unlocked, Claude can start Remote Control. Then a machine called "Home Assistant" shows up in the Claude app and on claude.ai/code. Remote Control needs a one-time login to your Claude account here; the token from the Configuration tab can't do it.</div>
+      <div class="hint" style="margin:0 0 10px">With level 2 unlocked ("unlock full access"), Claude can start Remote Control. Then a machine called "Home Assistant" shows up in the Claude app and on claude.ai/code. Remote Control needs a one-time login to your Claude account here; the token from the Configuration tab can't do it.</div>
       <div id="rcbody" class="muted">Loading…</div>
     </div>
   </section>
@@ -110,7 +110,7 @@
   <section id="devices">
     <div class="card">
       <h2>Protected devices</h2>
-      <div class="hint" style="margin:0 0 10px">Claude can read every device. To <b>control</b> a protected device, Claude needs your passcode first. Protected devices are hidden from Assist, so the normal Assist commands can't control them either.</div>
+      <div class="hint" style="margin:0 0 10px">Claude can read every device. To <b>control</b> a protected device, Claude needs level 1 ("unlock changes") first. Protected devices are hidden from Assist, so the normal Assist commands can't control them either.</div>
       <div class="row">
         <input class="grow" type="search" id="entsearch" placeholder="Search name or entity id">
         <select id="entdomain" style="width:auto"><option value="">All types</option></select>
@@ -159,7 +159,7 @@ loaders.status = async () => {
 };
 
 // ---- settings
-const PASS = ["passcode", "full_access_passcode", "supervisor_passcode"];
+const PASS = ["max_level"];
 const FIELDS = ["main_model", "effort", "session_idle_minutes", "request_timeout", "extra_instructions"];
 loaders.settings = async () => {
   try {
@@ -169,7 +169,7 @@ loaders.settings = async () => {
       $("#" + k).innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
     }
     FIELDS.forEach((k) => ($("#" + k).value = o[k] || (k === "effort" ? "default" : "")));
-    PASS.forEach((k) => ($("#" + k).value = o[k] || ""));
+    $("#max_level").value = String(o.max_level === "" || o.max_level == null ? 3 : o.max_level);
     loadRemote();
   }
   catch (e) { toast(e.message); }

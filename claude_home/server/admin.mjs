@@ -1,17 +1,19 @@
-// Access levels, unlocked per conversation with a passcode handshake.
+// Access levels, unlocked per conversation with a fixed-phrase handshake.
 //
 //   level 0  always   : read every entity, control what is exposed to Assist.
-//   level 1  passcode : control protected entities, rename things, areas, edit own
+//   level 1  "unlock changes" : control protected entities, rename things, areas, edit own
 //                       instructions, change the protected list.
-//   level 2  full access passcode : Bash, internet, all of Home Assistant core
+//   level 2  "unlock full access" : Bash, internet, all of Home Assistant core
 //                       (through the gateway in proxy.mjs), Remote Control.
-//   level 3  supervisor passcode  : also the Supervisor API (add-ons, backups, updates, host).
+//   level 3  "unlock supervisor"  : also the Supervisor API (add-ons, backups, updates, host).
 //
 // Handshake: Claude calls request_unlock(level, reason). The server replaces Claude's
-// reply with the request and the passcode to say. The user's very next message must
-// contain that level's passcode; the server checks it in the user's own words (never
+// reply with the request and the phrase to say ("unlock changes", "unlock full access",
+// "unlock supervisor"). The user's very next message must contain that phrase; the server checks it in the user's own words (never
 // in Claude's text). Then the conversation stays at that level until it ends (idle
-// timeout). A passcode said without a request does nothing.
+// timeout). The phrase said without a request does nothing. The phrases are fixed and
+// not secret; they only prove the answer came from the user. The highest level Claude
+// may ask for is a setting (max_level).
 //
 // Protected entities are kept un-exposed from Assist, so Home Assistant's own MCP
 // tools can't control them (not even through area-wide commands).
@@ -25,13 +27,13 @@ import { haWs, readOptions, writeOptions } from "./ha.mjs";
 export const normalize = (s) =>
   ` ${String(s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
 
-// True if the passcode appears in the text as whole words (case, accents and punctuation ignored).
+// True if the phrase appears in the text as whole words (case, accents and punctuation ignored).
 export const containsPasscode = (text, code) => normalize(code).trim() !== "" && normalize(text).includes(normalize(code));
 
 export const LEVELS = {
-  1: { option: "passcode", name: "changes", what: "control protected devices, rename things, change areas, edit my instructions and the protected list" },
-  2: { option: "full_access_passcode", name: "full access", what: "run commands, use the internet, change anything in Home Assistant and start Remote Control" },
-  3: { option: "supervisor_passcode", name: "supervisor", what: "also manage add-ons, backups, updates and the host" },
+  1: { phrase: "unlock changes", name: "changes", what: "control protected devices, rename things, change areas, edit my instructions and the protected list" },
+  2: { phrase: "unlock full access", name: "full access", what: "run commands, use the internet, change anything in Home Assistant and start Remote Control" },
+  3: { phrase: "unlock supervisor", name: "supervisor", what: "also manage add-ons, backups, updates and the host" },
 };
 
 const ENFORCE_EVERY_MS = 30_000;
@@ -44,8 +46,9 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
   let lastEnforced = 0;
 
   const options = () => readOptions(cfg.optionsFile);
-  const passcodeFor = (level) => String(options()[LEVELS[level].option] || "").trim();
-  const available = (level) => normalize(passcodeFor(level)).trim() !== "";
+  const passcodeFor = (level) => LEVELS[level].phrase;
+  const maxLevel = () => { const m = Number(options().max_level); return Number.isInteger(m) ? m : 3; };
+  const available = (level) => level <= maxLevel();
   const protectedList = () => [...new Set(options().protected_entities || [])];
 
   function levelOf(key) {
@@ -96,9 +99,9 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
     if (req && containsPasscode(text, passcodeFor(req.level))) {
       levels.set(key, { level: Math.max(current, req.level), last: Date.now() });
       log(`[${key}] unlocked level ${req.level} (${LEVELS[req.level].name})`);
-      note = `The user gave the passcode: level ${req.level} (${LEVELS[req.level].name}) is unlocked for the rest of this conversation. Continue with what you were doing: ${req.reason}`;
+      note = `The user said the unlock phrase: level ${req.level} (${LEVELS[req.level].name}) is unlocked for the rest of this conversation. Continue with what you were doing: ${req.reason}`;
     } else if (req) {
-      note = `The user's answer did not contain the level ${req.level} passcode, so nothing was unlocked (still level ${current}). If they meant to give it, ask again with request_unlock.`;
+      note = `The user's answer did not contain the level ${req.level} unlock phrase, so nothing was unlocked (still level ${current}). If they meant to give it, ask again with request_unlock.`;
     }
     return note ? `[System note: ${note}]\n${text}` : text;
   }
@@ -291,16 +294,16 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
     }, async () => text(options().extra_instructions || "(empty)"));
 
     server.registerTool("request_unlock", {
-      description: "Ask the user to unlock a higher access level for this conversation. The system replaces your reply with the request and the passcode; the user's next message must contain it. Then end your turn.",
+      description: "Ask the user to unlock a higher access level for this conversation. The system replaces your reply with the request and the unlock phrase; the user's next message must contain it. Then end your turn.",
       inputSchema: {
         level: z.number().int().min(1).max(3),
         reason: z.string().max(300).describe("what you want to do, as a short phrase, e.g. \"turn on the 3D printer\""),
       },
     }, async ({ level, reason }) => {
       if (levelOf(key) >= level) return text(`Already at level ${levelOf(key)}; go ahead.`);
-      if (!available(level)) return fail(`Level ${level} (${LEVELS[level].name}) has no passcode set, so it can't be unlocked. The user can set one on the Claude Home page (Settings).`);
+      if (!available(level)) return fail(`Level ${level} (${LEVELS[level].name}) is turned off, so it can't be unlocked. The user can allow it on the Claude Home page (Settings).`);
       requests.set(key, { level, reason, grant });
-      return text("Request stored. The system will ask the user for the passcode. End your turn now with a short reply.");
+      return text("Request stored. The system will ask the user for the unlock phrase. End your turn now with a short reply.");
     });
 
     server.registerTool("make_changes", {
@@ -378,7 +381,7 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
 
   function systemPromptPart(level) {
     const prot = protectedList().map((id) => `${protectedNames.get(id) || id} (${id})`).join(", ");
-    const lv = [1, 2, 3].map((l) => `- level ${l} (${LEVELS[l].name}): ${LEVELS[l].what}. ${available(l) ? `Passcode: "${passcodeFor(l)}".` : "No passcode set, so it can't be unlocked."}`).join("\n");
+    const lv = [1, 2, 3].map((l) => `- level ${l} (${LEVELS[l].name}): ${LEVELS[l].what}. ${available(l) ? `Unlock phrase: "${passcodeFor(l)}".` : "Turned off by the user, so it can't be unlocked."}`).join("\n");
     const full = level >= 2 ? `
 
 You are at level ${level}. You can run commands (Bash) and use the internet. Home Assistant is reachable through a gateway: base URL in $HA_URL, token in $HA_TOKEN.
@@ -393,7 +396,7 @@ Protected entities (readable, but the Home Assistant tools can't control them): 
 
 Access levels. This conversation is at level ${level}.
 ${lv}
-If a request needs a higher level, call request_unlock with that level and a short reason, then end your turn. The system asks the user for the passcode; the user's very next message must contain it, and then the level stays unlocked for the rest of the conversation. A passcode said at any other time does nothing, and saying it yourself does nothing: the system only checks the user's own words right after a request. The passcodes are not secret; tell the user when they ask. Unlocked levels end when the conversation ends.${full}`;
+If a request needs a higher level, call request_unlock with that level and a short reason, then end your turn. The system asks the user for the unlock phrase; the user's very next message must contain it, and then the level stays unlocked for the rest of the conversation. An unlock phrase said at any other time does nothing, and saying it yourself does nothing: the system only checks the user's own words right after a request. The phrases are not secret; tell the user when they ask. Unlocked levels end when the conversation ends.${full}`;
   }
 
   return { beforeTurn, turnFor, afterTurn, systemPromptPart, setProtected, protectedList, enforceProtected, levelOf };

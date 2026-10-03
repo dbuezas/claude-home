@@ -4,7 +4,7 @@ Claude Code, logged in with **your Claude subscription**, running as a Home Assi
 
 - **Assist conversation agent** – talk to it from the HA app, dashboards or voice satellites. Multi-turn: follow-ups like "and the bedroom too" keep context until the conversation has been idle for 15 min (configurable).
 - **Fast by default** – Opus with low effort. In tests it was faster than Haiku on multi-step questions (Haiku makes more tool calls) and more accurate.
-- **Locked down by default** – Claude can read every entity and control the ones exposed to Assist. Everything else needs a passcode level (see below).
+- **Locked down by default** – Claude can read every entity and control the ones exposed to Assist. Everything else needs an access level (see below).
 
 ```
 Assist ──► custom_components/claude_home ──HTTP+token──► add-on ──► claude -p (opus, low effort) ──► HA MCP server
@@ -16,7 +16,7 @@ Requires HA OS or Supervised (it's an add-on) and HA 2025.8+.
 
 **0. Prerequisites in HA**
 - Settings → Devices & services → Add integration → **Model Context Protocol Server**. Claude controls the house through it.
-- Settings → Voice assistants → Expose: the entities Claude may control without a passcode.
+- Settings → Voice assistants → Expose: the entities Claude may control without unlocking a level.
 
 **1. Subscription token** – on any computer with Claude Code: `claude setup-token`, copy the `sk-ant-oat…` token.
 
@@ -29,23 +29,21 @@ HA then shows **Claude Home discovered** under Settings → Devices & services �
 **4. Use it** – Settings → Voice assistants → your assistant → Conversation agent: **Claude Home**.
 Enable *Prefer handling commands locally* so "turn off the kitchen light" stays instant and only real questions go to Claude.
 
-## Access levels and passcodes
+## Access levels
 
-Set passcodes on the add-on's web page (sidebar → Claude → Settings). An empty passcode means that level is off.
-
-| Level | Passcode | Unlocks |
+| Level | Unlock phrase | Unlocks |
 |---|---|---|
 | 0 | – | Read every entity; control what is exposed to Assist |
-| 1 | Passcode | Control protected devices, rename things, areas, Claude's own instructions, the protected list |
-| 2 | Full access passcode | Commands, internet, all of Home Assistant core, Remote Control |
-| 3 | Supervisor passcode | Also add-ons, backups, updates, the host |
+| 1 | "unlock changes" | Control protected devices, rename things, areas, Claude's own instructions, the protected list |
+| 2 | "unlock full access" | Commands, internet, all of Home Assistant core, Remote Control |
+| 3 | "unlock supervisor" | Also add-ons, backups, updates, the host |
 
 How unlocking works:
 1. Claude asks for a level and says why.
-2. Your **very next** message must contain that level's passcode. The add-on checks it in your own words, never in anything Claude writes.
+2. Your **very next** message must contain that level's phrase. The add-on checks it in your own words, never in anything Claude writes.
 3. The level stays unlocked for the rest of the conversation (until it is idle for the conversation-memory time).
 
-A passcode said at any other time does nothing. The passcodes are not secret; they prove the "yes" came from you.
+The phrase said at any other time does nothing. The highest level Claude may ask for is a setting (sidebar → Claude → Settings, or `max_level`).
 
 How it is enforced:
 - Claude runs as an unprivileged user and never gets the Supervisor token. It reaches Home Assistant through a gateway on localhost that only allows what the conversation's level allows.
@@ -54,7 +52,7 @@ How it is enforced:
 
 ## Remote Control
 
-At level 2, Claude can start Remote Control. A machine called "Home Assistant" then shows up in the Claude app and on claude.ai/code; a session you start there runs inside the add-on with the same level. Remote Control needs a one-time login (Settings → Remote Control); the token from the Configuration tab can't do it. It runs until you stop it (Settings) or restart the add-on.
+At level 2 ("unlock full access"), Claude can start Remote Control. A machine called "Home Assistant" then shows up in the Claude app and on claude.ai/code; a session you start there runs inside the add-on with the same level. Remote Control needs a one-time login (Settings → Remote Control); the token from the Configuration tab can't do it. It runs until you stop it (Settings) or restart the add-on.
 
 ## Options
 

@@ -7,11 +7,10 @@
 //   127.0.0.1:8096 (gateway to Home Assistant, per-level grants) -> see proxy.mjs
 // Every request runs `claude -p` (Claude Code, logged in with your subscription) as
 // the unprivileged "claude" user. At level 0-1 it only gets MCP tools; from level 2
-// (full access passcode) it also gets Bash, the internet and the gateway.
+// ("unlock full access") it also gets Bash, the internet and the gateway.
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { supervisor, readOptions, writeOptions } from "./ha.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { startUi } from "./ui.mjs";
 import { createAdmin } from "./admin.mjs";
@@ -97,7 +96,7 @@ function runClaude(text, sid, turn) {
     "--mcp-config", JSON.stringify({ mcpServers: turn.servers }),
     "--strict-mcp-config",
     ...(full
-      ? ["--tools", "default", "--permission-mode", "bypassPermissions"] // full access, unlocked by passcode
+      ? ["--tools", "default", "--permission-mode", "bypassPermissions"] // full access, unlocked by the user
       : ["--tools", "", "--allowedTools", "mcp__ha", "mcp__admin", "--permission-mode", "dontAsk"]), // only MCP tools; anything else denied
     "--append-system-prompt", systemPrompt(s, turn.level),
   ];
@@ -141,7 +140,7 @@ async function ask(key, text) {
   const job = prev.catch(() => {}).then(async () => {
     const existing = sessions.get(key);
     const fresh = !existing || Date.now() - existing.last > settings().idleMs;
-    // If this message answers an unlock request with the passcode, the level goes up here.
+    // If this message answers an unlock request with its phrase, the level goes up here.
     const prompt = await admin.beforeTurn(key, text);
 
     const turn = admin.turnFor(key);
@@ -210,14 +209,4 @@ http
 
 startUi({ cfg, settings, sessions, readJson, send, log, admin, remote });
 
-// 0.5.0 merged the two passcodes into one. options.json drops keys that are no
-// longer in the schema, so read the old ones from the Supervisor.
-supervisor("/addons/self/info")
-  .then(async ({ options: o = {} }) => {
-    if (!o.admin_passcode && !o.instructions_passcode) return;
-    const current = readOptions(cfg.optionsFile);
-    await writeOptions(cfg.optionsFile, { ...current, passcode: current.passcode || o.passcode || o.admin_passcode || o.instructions_passcode });
-    log("migrated passcodes to a single 'passcode' option");
-  })
-  .catch((e) => log("passcode migration failed:", e.message));
 admin.enforceProtected(true);

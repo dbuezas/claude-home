@@ -22,15 +22,9 @@ configuration:
   extra_instructions:
     name: Extra instructions
     description: Appended to the system prompt, e.g. house layout, nicknames for rooms.
-  passcode:
-    name: Passcode
-    description: Level 1. Unlocks controlling protected devices, renames, areas, Claude's own instructions and the protected list for one conversation, when Claude asks and your next message contains it.
-  full_access_passcode:
-    name: Full access passcode (level 2)
-    description: Unlocks commands, internet, all of Home Assistant and Remote Control for one conversation, when Claude asks and your next message contains it.
-  supervisor_passcode:
-    name: Supervisor passcode (level 3)
-    description: Like full access, plus add-ons, backups, updates and the host.
+  max_level:
+    name: Highest access level
+    description: 0 = read and Assist only, 1 = "unlock changes", 2 = "unlock full access", 3 = "unlock supervisor". Claude asks; your next message must contain the phrase.
   protected_entities:
     name: Protected entities
-    description: Entity ids hidden from Assist. Claude can read them, but controlling them needs level 1. Easier to manage on the Claude page (Protected tab).
+    description: Entity ids hidden from Assist. Claude can read them, but controlling them needs level 1 ("unlock changes"). Easier to manage on the Claude page (Protected tab).
