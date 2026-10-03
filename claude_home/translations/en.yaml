@@ -24,7 +24,7 @@ configuration:
     description: Appended to the system prompt, e.g. house layout, nicknames for rooms.
   max_level:
     name: Highest access level
-    description: 0 = read and Assist only, 1 = "unlock changes", 2 = "unlock full access", 3 = "unlock supervisor". Claude asks; your next message must contain the phrase.
+    description: 0 = read and Assist only, 1 = "unlock protected entities", 2 = "unlock full access", 3 = "unlock supervisor". Claude asks; your next message must contain the phrase.
   protected_entities:
     name: Protected entities
-    description: Entity ids hidden from Assist. Claude can read them, but controlling them needs level 1 ("unlock changes"). Easier to manage on the Claude page (Protected tab).
+    description: Entity ids hidden from Assist. Claude can read them, but controlling them needs level 1 ("unlock protected entities"). Easier to manage on the Claude page (Protected tab).

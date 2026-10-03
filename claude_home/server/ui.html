@@ -92,12 +92,12 @@
       <h2>Access levels</h2>
       <div class="hint" style="margin:0 0 4px">Claude must <b>ask</b> for a level first. Your <b>very next</b> message must contain the phrase. Then the level stays unlocked for the rest of the conversation. Said at any other time, the phrase does nothing. The add-on checks it in your words only, never in anything Claude writes.</div>
       <table style="margin-top:8px"><tbody>
-        <tr><td><b>1</b></td><td><code>unlock changes</code></td><td>control protected devices, rename things, areas, Claude's own instructions, the protected list</td></tr>
+        <tr><td><b>1</b></td><td><code>unlock protected entities</code></td><td>control protected devices, rename things, areas, Claude's own instructions, the protected list</td></tr>
         <tr><td><b>2</b></td><td><code>unlock full access</code></td><td>commands, internet, all of Home Assistant, Remote Control</td></tr>
         <tr><td><b>3</b></td><td><code>unlock supervisor</code></td><td>also add-ons, backups, updates, the host</td></tr>
       </tbody></table>
       <label for="max_level">Highest level Claude may ask for</label>
-      <select id="max_level"><option value="0">0 · none (read and Assist only)</option><option value="1">1 · changes</option><option value="2">2 · full access</option><option value="3">3 · supervisor</option></select>
+      <select id="max_level"><option value="0">0 · none (read and Assist only)</option><option value="1">1 · protected entities</option><option value="2">2 · full access</option><option value="3">3 · supervisor</option></select>
       <div class="row" style="margin-top:14px"><button class="primary" id="savepass">Save</button></div>
     </form>
     <div class="card">
@@ -110,7 +110,7 @@
   <section id="devices">
     <div class="card">
       <h2>Protected devices</h2>
-      <div class="hint" style="margin:0 0 10px">Claude can read every device. To <b>control</b> a protected device, Claude needs level 1 ("unlock changes") first. Protected devices are hidden from Assist, so the normal Assist commands can't control them either.</div>
+      <div class="hint" style="margin:0 0 10px">Claude can read every device. To <b>control</b> a protected device, Claude needs level 1 ("unlock protected entities") first. Protected devices are hidden from Assist, so the normal Assist commands can't control them either.</div>
       <div class="row">
         <input class="grow" type="search" id="entsearch" placeholder="Search name or entity id">
         <select id="entdomain" style="width:auto"><option value="">All types</option></select>

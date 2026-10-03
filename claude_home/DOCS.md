@@ -34,7 +34,7 @@ Enable *Prefer handling commands locally* so "turn off the kitchen light" stays 
 | Level | Unlock phrase | Unlocks |
 |---|---|---|
 | 0 | – | Read every entity; control what is exposed to Assist |
-| 1 | "unlock changes" | Control protected devices, rename things, areas, Claude's own instructions, the protected list |
+| 1 | "unlock protected entities" | Control protected devices, rename things, areas, Claude's own instructions, the protected list |
 | 2 | "unlock full access" | Commands, internet, all of Home Assistant core, Remote Control |
 | 3 | "unlock supervisor" | Also add-ons, backups, updates, the host |
 

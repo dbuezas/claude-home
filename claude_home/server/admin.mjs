@@ -1,14 +1,14 @@
 // Access levels, unlocked per conversation with a fixed-phrase handshake.
 //
 //   level 0  always   : read every entity, control what is exposed to Assist.
-//   level 1  "unlock changes" : control protected entities, rename things, areas, edit own
+//   level 1  "unlock protected entities" : control protected entities, rename things, areas, edit own
 //                       instructions, change the protected list.
 //   level 2  "unlock full access" : Bash, internet, all of Home Assistant core
 //                       (through the gateway in proxy.mjs), Remote Control.
 //   level 3  "unlock supervisor"  : also the Supervisor API (add-ons, backups, updates, host).
 //
 // Handshake: Claude calls request_unlock(level, reason). The server replaces Claude's
-// reply with the request and the phrase to say ("unlock changes", "unlock full access",
+// reply with the request and the phrase to say ("unlock protected entities", "unlock full access",
 // "unlock supervisor"). The user's very next message must contain that phrase; the server checks it in the user's own words (never
 // in Claude's text). Then the conversation stays at that level until it ends (idle
 // timeout). The phrase said without a request does nothing. The phrases are fixed and
@@ -31,7 +31,7 @@ export const normalize = (s) =>
 export const containsPasscode = (text, code) => normalize(code).trim() !== "" && normalize(text).includes(normalize(code));
 
 export const LEVELS = {
-  1: { phrase: "unlock changes", name: "changes", what: "control protected devices, rename things, change areas, edit my instructions and the protected list" },
+  1: { phrase: "unlock protected entities", name: "protected entities", what: "control protected devices, rename things, change areas, edit my instructions and the protected list" },
   2: { phrase: "unlock full access", name: "full access", what: "run commands, use the internet, change anything in Home Assistant and start Remote Control" },
   3: { phrase: "unlock supervisor", name: "supervisor", what: "also manage add-ons, backups, updates and the host" },
 };
