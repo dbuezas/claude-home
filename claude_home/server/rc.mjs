@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 export function createRemoteControl({ cfg, user, baseEnv, log }) {
   let login = null; // { proc, url, output }
   let rc = null; // { proc, level, output, release }
+  let lastError = ""; // output of the last Remote Control run that failed
 
   // Remote Control and login must use the full login, not CLAUDE_CODE_OAUTH_TOKEN.
   const env = (extra = {}) => {
@@ -32,6 +33,7 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
       running: !!rc,
       level: rc?.level ?? null,
       output: rc ? rc.output.slice(-1500) : "",
+      error: rc ? "" : lastError,
     };
   }
 
@@ -84,10 +86,14 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
     proc.stdout.on("data", onData);
     proc.stderr.on("data", onData);
     proc.on("close", (code) => {
-      log(`remote-control exited ${code}`);
+      const out = rc?.proc === proc ? rc.output.trim() : "";
+      log(`remote-control exited ${code}${out ? `: ${out.slice(-300)}` : ""}`);
+      if (code) lastError = out.slice(-500) || `exited with code ${code}`;
       if (rc?.proc === proc) { rc.release(); rc = null; }
     });
+    lastError = "";
     await new Promise((r) => setTimeout(r, 4000)); // let it register and print its link
+    if (!rc) throw new Error(`Remote Control did not start: ${lastError}`);
     log(`remote-control started at level ${level}`);
     return status();
   }

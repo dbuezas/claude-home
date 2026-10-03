@@ -7,6 +7,11 @@ mkdir -p "$HOME" /data/work
 
 # Claude runs as the unprivileged "claude" user: it owns its home and work dir,
 # and can't read the Supervisor token or the add-on's own files.
+# Trust the work dir up front: Remote Control refuses an untrusted workspace and
+# there is no terminal here to accept the trust dialog.
+CJ="$HOME/.claude.json"
+[ -s "$CJ" ] || echo '{}' > "$CJ"
+jq '.projects["/data/work"].hasTrustDialogAccepted = true | .hasCompletedOnboarding = true' "$CJ" > "$CJ.tmp" && mv "$CJ.tmp" "$CJ"
 chown -R claude:claude "$HOME" /data/work
 chmod 700 /run/s6/container_environment 2>/dev/null || true
 chmod 711 /data   # claude can reach its own dirs, but not list or read the rest

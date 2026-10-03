@@ -188,7 +188,7 @@ async function loadRemote() {
     parts.push(s.loggedIn ? `<p><span class="ok">Logged in</span>${s.email ? ` as ${esc(s.email)}` : ""}. <button type="button" class="secondary" id="rclogout">Log out</button></p>`
       : s.login?.url ? `<p>1. Open <a href="${esc(s.login.url)}" target="_blank" rel="noopener">this login link</a> and sign in.</p><p>2. Paste the code you get:</p><form class="row" id="rccodeform"><input class="grow" type="text" id="rccode" autocomplete="off"><button class="primary">Finish login</button></form>`
       : `<p>Not logged in. <button type="button" class="primary" id="rclogin">Log in to Claude</button></p>`);
-    parts.push(s.running ? `<p><span class="ok">Running</span> at level ${s.level}. <button type="button" class="secondary" id="rcstop">Stop</button></p>` : `<p class="muted">Not running. Ask Claude to start it (needs level 2).</p>`);
+    parts.push(s.running ? `<p><span class="ok">Running</span> at level ${s.level}. <button type="button" class="secondary" id="rcstop">Stop</button></p>` : `<p class="muted">Not running. Ask Claude to start it (needs level 2).</p>${s.error ? `<p class="bad">Last error: ${esc(s.error)}</p>` : ""}`);
     $("#rcbody").innerHTML = parts.join("");
     $("#rclogin")?.addEventListener("click", async () => { try { await api("api/remote/login", {}); } catch (e) { toast(e.message); } loadRemote(); });
     $("#rclogout")?.addEventListener("click", async () => { try { await api("api/remote/logout", {}); } catch (e) { toast(e.message); } loadRemote(); });
