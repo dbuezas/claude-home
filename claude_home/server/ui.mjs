@@ -5,7 +5,9 @@ import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { haWs, readOptions, writeOptions } from "./ha.mjs";
-import { normalize } from "./admin.mjs";
+import { normalize, LEVELS } from "./admin.mjs";
+
+const PASSCODES = Object.values(LEVELS).map((l) => l.option);
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -43,7 +45,7 @@ async function mcpTools(mcpConfigPath) {
   return value;
 }
 
-export function startUi({ cfg, settings, sessions, readJson, send, log, admin }) {
+export function startUi({ cfg, settings, sessions, readJson, send, log, admin, remote }) {
   const allowAny = env.UI_ALLOW_ANY === "1"; // local development only
 
   async function status() {
@@ -75,9 +77,11 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin })
   async function saveOptions(changes) {
     const next = { ...readOptions(cfg.optionsFile) };
     for (const [k, clean] of Object.entries(EDITABLE)) if (k in changes) next[k] = clean(changes[k]);
-    // Empty passcode = feature off.
-    if ("passcode" in changes) next.passcode = String(changes.passcode ?? "").trim();
-    if (next.passcode && normalize(next.passcode).trim().replace(/ /g, "").length < 4) throw new Error("The passcode needs at least 4 letters or digits.");
+    // Empty passcode = that level can't be unlocked.
+    for (const k of PASSCODES) if (k in changes) next[k] = String(changes[k] ?? "").trim();
+    const set = PASSCODES.map((k) => next[k]).filter(Boolean).map((p) => normalize(p).trim());
+    if (set.some((p) => p.replace(/ /g, "").length < 4)) throw new Error("Each passcode needs at least 4 letters or digits.");
+    if (set.some((p, i) => set.some((q, j) => i !== j && ` ${p} `.includes(` ${q} `)))) throw new Error("The passcodes must all differ, and none may contain another.");
     await writeOptions(cfg.optionsFile, next);
   }
 
@@ -88,11 +92,16 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin })
       const o = readOptions(cfg.optionsFile);
       return {
         ...Object.fromEntries(Object.keys(EDITABLE).map((k) => [k, o[k] ?? ""])),
-        passcode: o.passcode ?? "",
+        ...Object.fromEntries(PASSCODES.map((k) => [k, o[k] ?? ""])),
       };
     },
     "POST /api/options": async (req) => { await saveOptions((await readJson(req)) || {}); return { ok: true }; },
     "GET /api/entities": async () => entities(),
+    "GET /api/remote": async () => remote.status(),
+    "POST /api/remote/login": async () => remote.startLogin(),
+    "POST /api/remote/code": async (req) => remote.submitCode(((await readJson(req)) || {}).code || ""),
+    "POST /api/remote/logout": async () => { remote.stop(); await remote.logout(); return remote.status(); },
+    "POST /api/remote/stop": async () => { remote.stop(); return { ok: true }; },
     "POST /api/protect": async (req) => {
       const { entity_ids, protected: on } = (await readJson(req)) || {};
       if (!Array.isArray(entity_ids) || !entity_ids.length) throw new Error("entity_ids required");

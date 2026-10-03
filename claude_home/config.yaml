@@ -1,5 +1,5 @@
 name: Claude Home
-version: "0.7.0"
+version: "0.8.0"
 slug: claude_home
 description: Claude Code (your Claude subscription) as a Home Assistant conversation agent
 url: https://github.com/dbuezas/claude-home
@@ -11,6 +11,7 @@ startup: application
 boot: auto
 homeassistant_api: true
 hassio_api: true
+hassio_role: manager
 ingress: true
 ingress_port: 8098
 panel_icon: mdi:robot-happy-outline
@@ -34,5 +35,7 @@ schema:
   ha_token: password?
   extra_instructions: str?
   passcode: str?
+  full_access_passcode: str?
+  supervisor_passcode: str?
   protected_entities:
     - str

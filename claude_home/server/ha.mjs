@@ -47,5 +47,5 @@ export async function writeOptions(file, options) {
   // Removed options; the Supervisor rejects unknown ones.
   for (const k of ["planner_model", "admin_hint", "instructions_hint", "admin_passcode", "instructions_passcode"]) delete next[k];
   await supervisor("/addons/self/options", { method: "POST", body: JSON.stringify({ options: next }) });
-  writeFileSync(file, JSON.stringify(next));
+  writeFileSync(file, JSON.stringify(next), { mode: 0o600 });
 }

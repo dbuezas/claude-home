@@ -1,18 +1,20 @@
-// Read access to every entity, plus passcode-gated changes and protected entities.
+// Access levels, unlocked per conversation with a passcode handshake.
 //
-// Claude can read any entity's state freely (find_entities). Everything else here it
-// can only PROPOSE: renames and areas, its own extra instructions, the protected list,
-// and controlling a protected entity.
-// The server stores the exact plan and replaces Claude's reply with it. The passcode
-// is not a secret: it only proves the confirmation came from the user. The server
-// checks it on the user's raw message (never on anything Claude writes). A proposal
-// stays pending until the user's newest message contains the passcode, Claude cancels
-// it (the user said no), a new proposal replaces it, or it expires. On a match the
-// server applies the stored plan, then Claude gets the message plus a note with the result.
+//   level 0  always   : read every entity, control what is exposed to Assist.
+//   level 1  passcode : control protected entities, rename things, areas, edit own
+//                       instructions, change the protected list.
+//   level 2  full access passcode : Bash, internet, all of Home Assistant core
+//                       (through the gateway in proxy.mjs), Remote Control.
+//   level 3  supervisor passcode  : also the Supervisor API (add-ons, backups, updates, host).
+//
+// Handshake: Claude calls request_unlock(level, reason). The server replaces Claude's
+// reply with the request and the passcode to say. The user's very next message must
+// contain that level's passcode; the server checks it in the user's own words (never
+// in Claude's text). Then the conversation stays at that level until it ends (idle
+// timeout). A passcode said without a request does nothing.
 //
 // Protected entities are kept un-exposed from Assist, so Home Assistant's own MCP
-// tools can't control them (not even through area-wide commands). Claude can still
-// read them with find_entities; controlling them needs a proposal confirmed with the passcode.
+// tools can't control them (not even through area-wide commands).
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,19 +28,32 @@ export const normalize = (s) =>
 // True if the passcode appears in the text as whole words (case, accents and punctuation ignored).
 export const containsPasscode = (text, code) => normalize(code).trim() !== "" && normalize(text).includes(normalize(code));
 
-const PLAN_TTL_MS = 10 * 60_000;
+export const LEVELS = {
+  1: { option: "passcode", name: "changes", what: "control protected devices, rename things, change areas, edit my instructions and the protected list" },
+  2: { option: "full_access_passcode", name: "full access", what: "run commands, use the internet, change anything in Home Assistant and start Remote Control" },
+  3: { option: "supervisor_passcode", name: "supervisor", what: "also manage add-ons, backups, updates and the host" },
+};
+
 const ENFORCE_EVERY_MS = 30_000;
 
-export function createAdmin({ cfg, log }) {
+export function createAdmin({ cfg, settings, log, gateway, remote }) {
   const grants = new Map(); // per-turn bearer token -> conversation key
-  const plans = new Map(); // conversation key -> { lines, run, grant, at }
+  const levels = new Map(); // conversation key -> { level, last }
+  const requests = new Map(); // conversation key -> { level, reason, grant } (valid for the next message only)
   let protectedNames = new Map(); // entity_id -> friendly name (for the system prompt)
   let lastEnforced = 0;
 
   const options = () => readOptions(cfg.optionsFile);
-  const passcode = () => String(options().passcode || "").trim();
-  const enabled = () => normalize(passcode()).trim() !== "";
+  const passcodeFor = (level) => String(options()[LEVELS[level].option] || "").trim();
+  const available = (level) => normalize(passcodeFor(level)).trim() !== "";
   const protectedList = () => [...new Set(options().protected_entities || [])];
+
+  function levelOf(key) {
+    const l = levels.get(key);
+    if (!l) return 0;
+    if (Date.now() - l.last > settings().idleMs) { levels.delete(key); return 0; }
+    return l.level;
+  }
 
   // ---- protected entities -------------------------------------------------
   // Un-expose protected entities from Assist (fixes drift if someone re-exposed one).
@@ -69,47 +84,48 @@ export function createAdmin({ cfg, log }) {
   }
 
   // ---- before Claude runs -------------------------------------------------
-  // Applies a pending plan if this message confirms it. Returns the text for Claude.
+  // Completes an unlock handshake if this message answers one. Returns the text for Claude.
   async function beforeTurn(key, text) {
-    await enforceProtected();
-    let pending = plans.get(key);
-    if (pending && Date.now() - pending.at > PLAN_TTL_MS) { plans.delete(key); pending = null; }
-    const said = enabled() && containsPasscode(text, passcode());
+    enforceProtected(); // drift fix in the background; it never blocks a turn
+    const req = requests.get(key);
+    requests.delete(key); // the answer must be the very next message
+    const current = levelOf(key);
+    if (levels.has(key)) levels.get(key).last = Date.now();
 
     let note = "";
-    if (said && pending) {
-      plans.delete(key);
-      try {
-        const results = (await pending.run()).filter(Boolean);
-        log(`[${key}] applied plan: ${pending.lines.join("; ")}`);
-        note = `The user confirmed with the passcode and the system did: ${pending.lines.join("; ")}.${results.length ? ` Results: ${results.join(" | ")}` : ""} Tell the user briefly.`;
-      } catch (e) {
-        note = `The user confirmed with the passcode, but it failed: ${e.message}. Some steps may have been done.`;
-      }
-    } else if (said) {
-      note = "The message contains the passcode, but nothing was waiting for it, so nothing was done. Propose first, then the user confirms with the passcode.";
-    } else if (pending) {
-      note = `A proposal is still waiting: ${pending.lines.join("; ")}. This message does not contain the passcode "${passcode()}". If the user meant to confirm, say the passcode wasn't recognized and ask them to say "${passcode()}" again. If they decline, call cancel_proposal. If they want something different, propose again (that replaces it).`;
+    if (req && containsPasscode(text, passcodeFor(req.level))) {
+      levels.set(key, { level: Math.max(current, req.level), last: Date.now() });
+      log(`[${key}] unlocked level ${req.level} (${LEVELS[req.level].name})`);
+      note = `The user gave the passcode: level ${req.level} (${LEVELS[req.level].name}) is unlocked for the rest of this conversation. Continue with what you were doing: ${req.reason}`;
+    } else if (req) {
+      note = `The user's answer did not contain the level ${req.level} passcode, so nothing was unlocked (still level ${current}). If they meant to give it, ask again with request_unlock.`;
     }
     return note ? `[System note: ${note}]\n${text}` : text;
   }
 
-  // ---- while Claude runs: per-turn MCP access ------------------------------
-  function grantFor(key) {
+  // ---- per turn: MCP access and level -------------------------------------
+  function turnFor(key) {
+    const level = levelOf(key);
     const grant = randomBytes(24).toString("hex");
     grants.set(grant, key);
+    const gw = gateway.grant(level);
     return {
+      level,
       grant,
-      servers: { admin: { type: "http", url: `http://127.0.0.1:${cfg.adminPort}/mcp`, headers: { Authorization: `Bearer ${grant}` } } },
-      release: () => grants.delete(grant),
+      gateway: gw.token,
+      servers: {
+        ha: { type: "http", url: `${gateway.url}/core/api/mcp`, headers: { Authorization: `Bearer ${gw.token}` } },
+        admin: { type: "http", url: `http://127.0.0.1:${cfg.adminPort}/mcp`, headers: { Authorization: `Bearer ${grant}` } },
+      },
+      release: () => { grants.delete(grant); gw.release(); },
     };
   }
 
-  // After Claude's turn: if it proposed something, the reply is replaced by the exact list.
+  // After Claude's turn: if it asked to unlock, the reply is replaced by the exact request.
   function afterTurn(key, grant) {
-    const plan = plans.get(key);
-    if (!plan || !grant || plan.grant !== grant) return "";
-    return `I'll do this: ${plan.lines.join(". ")}. To confirm, say "${passcode()}". Say no to cancel.`;
+    const req = requests.get(key);
+    if (!req || req.grant !== grant) return "";
+    return `To ${req.reason.replace(/[.!]+$/, "")}, I need level ${req.level} (${LEVELS[req.level].name}) for this conversation. Say "${passcodeFor(req.level)}" to unlock it.`;
   }
 
   // ---- registry helpers -----------------------------------------------------
@@ -184,7 +200,7 @@ export function createAdmin({ cfg, log }) {
           const isProtected = protectedList().includes(c.target);
           if (c.action === "protect" && isProtected) throw new Error(`${c.target} is already protected`);
           if (c.action === "unprotect" && !isProtected) throw new Error(`${c.target} is not protected`);
-          lines.push(c.action === "protect" ? `Protect ${label(c.target)}: from then on, controlling it needs the passcode` : `Unprotect ${label(c.target)}: you get normal access to it again`);
+          lines.push(c.action === "protect" ? `Protect ${label(c.target)}: from then on, controlling it needs level 1` : `Unprotect ${label(c.target)}: you get normal access to it again`);
           (c.action === "protect" ? protect : unprotect).push(c.target);
           break;
         }
@@ -234,11 +250,17 @@ export function createAdmin({ cfg, log }) {
   // ---- the local MCP server Claude talks to ---------------------------------
   const text = (t) => ({ content: [{ type: "text", text: t }] });
   const fail = (t) => ({ isError: true, ...text(t) });
-  const PROPOSED = "Proposal stored. The system replaces your reply with the exact list and the passcode to say, so just end your turn with a short reply.";
-  const store = (key, grant, plan) => { plans.set(key, { grant, at: Date.now(), ...plan }); return text(PROPOSED); };
+  const locked = (need, key) => fail(`Locked: this needs level ${need} (${LEVELS[need].name}); the conversation is at level ${levelOf(key)}. Call request_unlock with level ${need} and a short reason.`);
+  async function runPlan(make) {
+    try {
+      const plan = await make();
+      const results = (await plan.run()).filter(Boolean);
+      return text(`Done: ${plan.lines.join("; ")}.${results.length ? ` Results: ${results.join(" | ")}` : ""}`);
+    } catch (e) { return fail(`Failed: ${e.message}`); }
+  }
 
   function buildServer(key, grant) {
-    const server = new McpServer({ name: "claude-home-admin", version: "0.5.0" });
+    const server = new McpServer({ name: "claude-home-admin", version: "0.8.0" });
 
     server.registerTool("find_entities", {
       description: "Read-only, always allowed. Search ALL Home Assistant entities (also ones not exposed to Assist, and protected ones) by id, name, area or device. Shows state, name, area, device and whether it is protected. Set details to also get attributes.",
@@ -268,10 +290,21 @@ export function createAdmin({ cfg, log }) {
       inputSchema: {},
     }, async () => text(options().extra_instructions || "(empty)"));
 
-    if (!enabled()) return server; // without a passcode there is nothing to propose
+    server.registerTool("request_unlock", {
+      description: "Ask the user to unlock a higher access level for this conversation. The system replaces your reply with the request and the passcode; the user's next message must contain it. Then end your turn.",
+      inputSchema: {
+        level: z.number().int().min(1).max(3),
+        reason: z.string().max(300).describe("what you want to do, as a short phrase, e.g. \"turn on the 3D printer\""),
+      },
+    }, async ({ level, reason }) => {
+      if (levelOf(key) >= level) return text(`Already at level ${levelOf(key)}; go ahead.`);
+      if (!available(level)) return fail(`Level ${level} (${LEVELS[level].name}) has no passcode set, so it can't be unlocked. The user can set one on the Claude Home page (Settings).`);
+      requests.set(key, { level, reason, grant });
+      return text("Request stored. The system will ask the user for the passcode. End your turn now with a short reply.");
+    });
 
-    server.registerTool("propose_changes", {
-      description: "Propose renames, area changes, and adding/removing entities to/from the protected list. Nothing happens now: the user must confirm with the passcode. Send all changes for one request in a single call.",
+    server.registerTool("make_changes", {
+      description: "Level 1. Rename entities/devices/areas, create areas, move things between areas, add entities to or remove them from the protected list. Applied immediately; tell the user what you did.",
       inputSchema: {
         changes: z.array(z.object({
           action: z.enum(["rename_entity", "rename_device", "set_area", "create_area", "rename_area", "protect", "unprotect"]),
@@ -279,12 +312,10 @@ export function createAdmin({ cfg, log }) {
           value: z.string().optional().describe("new name, or area name for set_area; empty resets a name to default"),
         })).min(1).max(50),
       },
-    }, async ({ changes }) => {
-      try { return store(key, grant, await planChanges(changes)); } catch (e) { return fail(`Proposal rejected: ${e.message}`); }
-    });
+    }, async ({ changes }) => (levelOf(key) < 1 ? locked(1, key) : runPlan(() => planChanges(changes))));
 
-    server.registerTool("propose_use", {
-      description: "Propose controlling PROTECTED entities (the only way to control them; reading is free with find_entities). service is an action like \"turn_on\", \"light.turn_on\", \"script.send_gcode\". Nothing happens now: the user must confirm with the passcode.",
+    server.registerTool("use_protected", {
+      description: "Level 1. Control PROTECTED entities (the Home Assistant tools can't). service is an action like \"turn_on\", \"light.turn_on\", \"script.send_gcode\".",
       inputSchema: {
         actions: z.array(z.object({
           entity_id: z.string(),
@@ -292,28 +323,36 @@ export function createAdmin({ cfg, log }) {
           data: z.record(z.string(), z.any()).optional().describe("service data, e.g. {\"brightness_pct\": 50} or a script's fields"),
         })).min(1).max(20),
       },
-    }, async ({ actions }) => {
-      try { return store(key, grant, await planUse(actions)); } catch (e) { return fail(`Proposal rejected: ${e.message}`); }
-    });
+    }, async ({ actions }) => (levelOf(key) < 1 ? locked(1, key) : runPlan(() => planUse(actions))));
 
-    server.registerTool("propose_instructions", {
-      description: "Propose a change to your own extra instructions, e.g. when the user says 'remember that…' or 'forget that…'. Nothing happens now: the user must confirm with the passcode.",
+    server.registerTool("set_instructions", {
+      description: "Level 1. Change your own extra instructions, e.g. when the user says 'remember that…' or 'forget that…'.",
       inputSchema: {
         mode: z.enum(["append", "replace"]).describe("append adds a line; replace sets the whole text"),
         text: z.string().max(4000),
       },
     }, async ({ mode, text: t }) => {
+      if (levelOf(key) < 1) return locked(1, key);
       const current = options().extra_instructions || "";
       const next = mode === "append" ? [current, t].filter(Boolean).join("\n") : t;
-      const lines = [mode === "append" ? `Add to my instructions: "${t}"` : `Replace my instructions with: "${t}"`];
-      const run = async () => { await writeOptions(cfg.optionsFile, { ...options(), extra_instructions: next }); return []; };
-      return store(key, grant, { lines, run });
+      await writeOptions(cfg.optionsFile, { ...options(), extra_instructions: next });
+      return text("Saved. It applies from the next message.");
     });
 
-    server.registerTool("cancel_proposal", {
-      description: "Cancel the pending proposal, when the user says no or doesn't want it anymore.",
-      inputSchema: {},
-    }, async () => text(plans.delete(key) ? "Cancelled. Nothing was done." : "There was no pending proposal."));
+    server.registerTool("remote_control", {
+      description: "Level 2. Start, stop or check Remote Control, which lets the user continue in the Claude app or claude.ai/code on a machine called \"Home Assistant\" (a new session there, with this conversation's access level).",
+      inputSchema: { action: z.enum(["start", "stop", "status"]) },
+    }, async ({ action }) => {
+      if (action !== "status" && levelOf(key) < 2) return locked(2, key);
+      try {
+        if (action === "stop") return text(remote.stop() ? "Remote Control stopped." : "Remote Control was not running.");
+        const s = action === "start" ? await remote.start(levelOf(key), { url: gateway.url, ...gateway.grant(levelOf(key)) }) : await remote.status();
+        return text(s.running
+          ? `Remote Control is running (level ${s.level}). Tell the user to open the Claude app or claude.ai/code and pick the "Home Assistant" machine. Output: ${s.output.slice(-600)}`
+          : s.loggedIn ? "Remote Control is not running." : "Remote Control needs a one-time Claude login on the Claude Home page (Settings → Remote Control).");
+      } catch (e) { return fail(e.message); }
+    });
+
     return server;
   }
 
@@ -337,28 +376,25 @@ export function createAdmin({ cfg, log }) {
     })
     .listen(cfg.adminPort, "127.0.0.1", () => log(`claude-home admin tools on 127.0.0.1:${cfg.adminPort}`));
 
-  function systemPromptPart() {
+  function systemPromptPart(level) {
     const prot = protectedList().map((id) => `${protectedNames.get(id) || id} (${id})`).join(", ");
-    const read = `
+    const lv = [1, 2, 3].map((l) => `- level ${l} (${LEVELS[l].name}): ${LEVELS[l].what}. ${available(l) ? `Passcode: "${passcodeFor(l)}".` : "No passcode set, so it can't be unlocked."}`).join("\n");
+    const full = level >= 2 ? `
+
+You are at level ${level}. You can run commands (Bash) and use the internet. Home Assistant is reachable through a gateway: base URL in $HA_URL, token in $HA_TOKEN.
+- REST: curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_URL/core/api/states"   (any /core/api/... endpoint, e.g. POST /core/api/services/<domain>/<service>)
+- Websocket: $HA_URL/core/websocket (replace http with ws); authenticate with {"type":"auth","access_token":"$HA_TOKEN"}. Use it for config: entity/device/area registries, automations, etc.
+${level >= 3 ? "- Supervisor API: $HA_URL/<path>, e.g. /addons, /backups, /supervisor/info, /core/update, /host/info." : "- The Supervisor API (add-ons, backups, updates, host) needs level 3."}
+Prefer small, careful steps; say what you changed.` : "";
+    return `
 
 You can read the state of ANY entity with mcp__admin__find_entities, also ones the Home Assistant tools don't show. Reading is always allowed.
-Protected entities (you can read them, but not control them with the Home Assistant tools): ${prot || "none"}.`;
-    if (!enabled()) {
-      return `${read}
-You cannot control protected entities, rename things, change areas or edit your own instructions. If asked, say the user can turn this on by setting a passcode on the Claude Home page (Settings).`;
-    }
-    return `${read}
+Protected entities (readable, but the Home Assistant tools can't control them): ${prot || "none"}.
 
-Confirmation protocol. The passcode is "${passcode()}". With the mcp__admin tools you can propose:
-- renames of entities, devices and areas, creating areas, and moving things between areas (look up names with find_entities first);
-- edits to your own extra instructions (when the user says "remember that…" or "forget that…");
-- adding entities to or removing them from the protected list;
-- controlling protected entities (propose_use, the only way to control them).
-1. These tools only PROPOSE. Call one propose tool with everything for the request. The system then replaces your reply with the exact list and the passcode to say.
-2. The proposal waits (up to 10 minutes) until the user's newest message contains the passcode. The system checks it in the user's own words (never in your text) and does exactly the stored list. If the user says no, call cancel_proposal. A new proposal replaces the old one.
-3. You learn the outcome from a [System note] at the start of the user's message. Only say something was done when a system note says so.
-The passcode is not a secret; it only proves the confirmation came from the user, so saying it yourself does nothing. Tell the user the passcode whenever they need it. If the user seems to confirm but the passcode wasn't recognized (speech recognition may mishear it), say so and ask them to say it again; the proposal is still waiting. If they ask how this works, explain these steps simply.`;
+Access levels. This conversation is at level ${level}.
+${lv}
+If a request needs a higher level, call request_unlock with that level and a short reason, then end your turn. The system asks the user for the passcode; the user's very next message must contain it, and then the level stays unlocked for the rest of the conversation. A passcode said at any other time does nothing, and saying it yourself does nothing: the system only checks the user's own words right after a request. The passcodes are not secret; tell the user when they ask. Unlocked levels end when the conversation ends.${full}`;
   }
 
-  return { beforeTurn, grantFor, afterTurn, systemPromptPart, setProtected, protectedList, enforceProtected };
+  return { beforeTurn, turnFor, afterTurn, systemPromptPart, setProtected, protectedList, enforceProtected, levelOf };
 }

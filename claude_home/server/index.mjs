@@ -3,22 +3,27 @@
 //     POST /conversation  -> used by the HA custom component (Assist agent)
 //     GET  /health
 //   :8098 (Ingress web UI, only reachable through Home Assistant) -> see ui.mjs
-//   127.0.0.1:8097 (passcode-gated admin tools, per-turn token) -> see admin.mjs
-// Every request runs `claude -p` (Claude Code, logged in with your subscription)
-// with only the HA MCP tools (+ the admin proposal tools, if passcodes are set).
+//   127.0.0.1:8097 (admin tools, per-turn token) -> see admin.mjs (access levels)
+//   127.0.0.1:8096 (gateway to Home Assistant, per-level grants) -> see proxy.mjs
+// Every request runs `claude -p` (Claude Code, logged in with your subscription) as
+// the unprivileged "claude" user. At level 0-1 it only gets MCP tools; from level 2
+// (full access passcode) it also gets Bash, the internet and the gateway.
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { supervisor, readOptions, writeOptions } from "./ha.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { startUi } from "./ui.mjs";
 import { createAdmin } from "./admin.mjs";
+import { createProxy } from "./proxy.mjs";
+import { createRemoteControl } from "./rc.mjs";
 
 const env = process.env;
 const cfg = {
   port: Number(env.PORT || 8099),
   uiPort: Number(env.UI_PORT || 8098),
   adminPort: Number(env.ADMIN_PORT || 8097),
+  gatewayPort: Number(env.GATEWAY_PORT || 8096),
   apiToken: env.API_TOKEN || "",
   claudeBin: env.CLAUDE_BIN || "claude",
   mcpConfig: env.MCP_CONFIG || "/data/mcp.json",
@@ -47,19 +52,29 @@ function settings() {
   };
 }
 
-const admin = createAdmin({ cfg, log });
+// Claude runs as this user, so it can't read the Supervisor token or the add-on's files.
+const user = (() => {
+  const line = existsSync("/etc/passwd") && readFileSync("/etc/passwd", "utf8").split("\n").find((l) => l.startsWith("claude:"));
+  if (!line) return {}; // local development: run as the current user
+  const [, , uid, gid] = line.split(":");
+  return { uid: Number(uid), gid: Number(gid) };
+})();
 
-const systemPrompt = (s) => `You are the voice/chat assistant of a home, running inside Home Assistant.
+// The environment Claude gets: no Supervisor token, no add-on API token.
+const baseEnv = () => {
+  const keep = ["PATH", "LANG", "TZ", "USER", "LOGNAME", "TMPDIR", "CLAUDE_CODE_OAUTH_TOKEN", "DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"];
+  return { ...Object.fromEntries(keep.filter((k) => env[k]).map((k) => [k, env[k]])), HOME: env.CLAUDE_HOME_DIR || env.HOME };
+};
+
+const gateway = createProxy({ port: cfg.gatewayPort, log });
+const remote = createRemoteControl({ cfg, user, baseEnv, log });
+const admin = createAdmin({ cfg, settings, log, gateway, remote });
+
+const systemPrompt = (s, level) => `You are the voice/chat assistant of a home, running inside Home Assistant.
 Use the Home Assistant tools (mcp__ha__*) to read states and control devices.
 Replies are often spoken: answer in one or two short sentences, plain text, no markdown, no lists.
-Reply in the language the user used. If you need clarification, ask one short question.${admin.systemPromptPart()}
+Reply in the language the user used. If you need clarification, ask one short question.${admin.systemPromptPart(level)}
 ${s.extra}`.trim();
-
-// HA's MCP server (from mcp.json) plus any per-turn servers, as an inline --mcp-config.
-function mcpConfig(extra) {
-  const base = JSON.parse(readFileSync(cfg.mcpConfig, "utf8"));
-  return JSON.stringify({ mcpServers: { ...base.mcpServers, ...extra } });
-}
 
 
 // ---- sessions: external conversation id -> Claude Code session id ----------
@@ -71,25 +86,27 @@ setInterval(() => {
   for (const [k, s] of sessions) if (now - s.last > idleMs) sessions.delete(k);
 }, 60_000).unref();
 
-function runClaude(text, sid, extraServers = {}) {
+function runClaude(text, sid, turn) {
   const s = settings();
+  const full = turn.level >= 2;
   const args = [
     "-p",
     "--output-format", "json",
     "--verbose", // full message list, so we can see which tools ran
     "--model", s.mainModel,
-    "--tools", "", // no built-in tools at all: no Bash/Edit/Read/Web/subagents
-    "--mcp-config", mcpConfig(extraServers),
+    "--mcp-config", JSON.stringify({ mcpServers: turn.servers }),
     "--strict-mcp-config",
-    "--allowedTools", "mcp__ha", "mcp__admin",
-    "--permission-mode", "dontAsk", // anything not allowed is denied, never prompted
-    "--append-system-prompt", systemPrompt(s),
+    ...(full
+      ? ["--tools", "default", "--permission-mode", "bypassPermissions"] // full access, unlocked by passcode
+      : ["--tools", "", "--allowedTools", "mcp__ha", "mcp__admin", "--permission-mode", "dontAsk"]), // only MCP tools; anything else denied
+    "--append-system-prompt", systemPrompt(s, turn.level),
   ];
   if (s.effort) args.push("--effort", s.effort);
   if (sid) args.push("--resume", sid);
 
   return new Promise((resolve, reject) => {
-    const p = spawn(cfg.claudeBin, args, { cwd: cfg.workDir, env });
+    const childEnv = { ...baseEnv(), ...(full ? { HA_URL: gateway.url, HA_TOKEN: turn.gateway } : {}) };
+    const p = spawn(cfg.claudeBin, args, { cwd: cfg.workDir, env: childEnv, ...user });
     let out = "", err = "";
     const timer = setTimeout(() => {
       p.kill("SIGTERM");
@@ -124,23 +141,23 @@ async function ask(key, text) {
   const job = prev.catch(() => {}).then(async () => {
     const existing = sessions.get(key);
     const fresh = !existing || Date.now() - existing.last > settings().idleMs;
-    // If this message confirms a pending change with its passcode, the server applies it here.
+    // If this message answers an unlock request with the passcode, the level goes up here.
     const prompt = await admin.beforeTurn(key, text);
 
-    const turn = admin.grantFor(key);
+    const turn = admin.turnFor(key);
     let r;
     try {
-      r = await runClaude(prompt, fresh ? undefined : existing.sid, turn.servers);
+      r = await runClaude(prompt, fresh ? undefined : existing.sid, turn);
     } catch (e) {
       if (fresh) throw e;
       log(`resume failed for ${key}, starting fresh: ${e.message}`);
-      r = await runClaude(prompt, undefined, turn.servers);
+      r = await runClaude(prompt, undefined, turn);
     } finally {
       turn.release();
     }
     r.text = admin.afterTurn(key, turn.grant) || r.text;
     sessions.set(key, { sid: r.sid, last: Date.now() });
-    log(`[${key}] ${settings().mainModel} ${r.ms ?? "?"}ms tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
+    log(`[${key}] ${settings().mainModel} L${turn.level} ${r.ms ?? "?"}ms tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;
   });
   queues.set(key, job);
@@ -191,7 +208,7 @@ http
   })
   .listen(cfg.port, () => log(`claude-home API listening on :${cfg.port}`));
 
-startUi({ cfg, settings, sessions, readJson, send, log, admin });
+startUi({ cfg, settings, sessions, readJson, send, log, admin, remote });
 
 // 0.5.0 merged the two passcodes into one. options.json drops keys that are no
 // longer in the schema, so read the old ones from the Supervisor.

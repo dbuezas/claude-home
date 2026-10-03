@@ -5,6 +5,12 @@ set -e
 export HOME=/data/home
 mkdir -p "$HOME" /data/work
 
+# Claude runs as the unprivileged "claude" user: it owns its home and work dir,
+# and can't read the Supervisor token or the add-on's own files.
+chown -R claude:claude "$HOME" /data/work
+chmod 700 /run/s6/container_environment 2>/dev/null || true
+chmod 711 /data   # claude can reach its own dirs, but not list or read the rest
+
 # --- Claude subscription token (from `claude setup-token`) ---
 if ! bashio::config.has_value 'claude_oauth_token'; then
   bashio::exit.nok "Set 'claude_oauth_token' (run 'claude setup-token' on any computer and paste the result)."
@@ -35,7 +41,24 @@ jq -n --arg url "$HA_MCP_URL" --arg auth "Bearer $HA_AUTH" \
 chmod 600 /data/mcp.json
 
 # Models, timeouts and extra instructions are read live from /data/options.json.
-export MCP_CONFIG=/data/mcp.json WORK_DIR=/data/work PORT=8099 UI_PORT=8098
+export MCP_CONFIG=/data/mcp.json WORK_DIR=/data/work PORT=8099 UI_PORT=8098 CLAUDE_HOME_DIR=/data/home
+chmod 600 /data/api_token 2>/dev/null || true
+
+# Notes for Claude when it works here at level 2+ (also for Remote Control sessions).
+cat > /data/work/CLAUDE.md <<'NOTES'
+# Claude Home
+
+You run inside the Claude Home add-on of Home Assistant, as the unprivileged user "claude".
+Home Assistant is reachable through a gateway: base URL in $HA_URL, token in $HA_TOKEN.
+
+- REST: `curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_URL/core/api/states"` (any /core/api/... endpoint)
+- Websocket: `$HA_URL/core/websocket` (ws://), first message `{"type":"auth","access_token":"<HA_TOKEN>"}`.
+  Use it for configuration: entity/device/area registries, automations, scripts, dashboards.
+- Supervisor API (add-ons, backups, updates, host): `$HA_URL/<path>`, e.g. `/addons`, `/backups`. Only at level 3 ($CLAUDE_HOME_LEVEL).
+
+The gateway refuses what the current level doesn't allow (HTTP 403). Make small, careful changes and say what you changed.
+NOTES
+chown claude:claude /data/work/CLAUDE.md
 
 # --- sanity check: can Claude see HA's MCP server? ---
 if ! curl -sf -o /dev/null -X POST -H "Authorization: Bearer $HA_AUTH" \

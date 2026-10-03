@@ -1,9 +1,10 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-RUN apk add --no-cache nodejs npm libgcc libstdc++ ripgrep jq curl \
+RUN apk add --no-cache nodejs npm libgcc libstdc++ ripgrep jq curl git python3 \
  && npm install -g @anthropic-ai/claude-code \
- && claude --version
+ && claude --version \
+ && adduser -D -H -h /data/home -s /bin/sh claude
 
 WORKDIR /opt/server
 COPY server/package.json ./

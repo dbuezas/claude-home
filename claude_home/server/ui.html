@@ -89,13 +89,22 @@
       <div class="row" style="margin-top:14px"><button class="primary" id="savesettings">Save</button></div>
     </form>
     <form class="card" id="passform">
-      <h2>Passcode</h2>
-      <div class="hint" style="margin:0 0 4px">With a passcode set, Claude can <b>propose</b> renames, area changes, edits to its own instructions, changes to the protected list, and any use of a protected device. It first shows exactly what will change. Nothing happens until a message from you contains the passcode. The change waits up to 10 minutes, so a misheard word does not cancel it. Saying no cancels it. The passcode is not a secret: it proves the "yes" came from you. The add-on checks it in your message only, never in anything Claude writes. Remote Claude Code can't use passcodes.</div>
-      <label for="passcode">Passcode</label>
-      <input type="text" id="passcode" autocomplete="off" placeholder="Empty: these features are off">
+      <h2>Passcodes</h2>
+      <div class="hint" style="margin:0 0 4px">Each passcode unlocks one level for the rest of a conversation. Claude must <b>ask</b> for a level first, and your <b>very next</b> message must contain its passcode. Said at any other time, a passcode does nothing. The passcodes are not secret: they prove the "yes" came from you. The add-on checks them in your words only, never in anything Claude writes. An empty box means that level is off.</div>
+      <label for="passcode">Level 1 · Changes: control protected devices, rename things, areas, Claude's own instructions, the protected list</label>
+      <input type="text" id="passcode" autocomplete="off" placeholder="Empty: level 1 is off">
+      <label for="full_access_passcode">Level 2 · Full access: commands, internet, all of Home Assistant, Remote Control</label>
+      <input type="text" id="full_access_passcode" autocomplete="off" placeholder="Empty: level 2 is off">
+      <label for="supervisor_passcode">Level 3 · Supervisor: also add-ons, backups, updates, the host</label>
+      <input type="text" id="supervisor_passcode" autocomplete="off" placeholder="Empty: level 3 is off">
       <div class="hint">Use words that are easy to say and that speech recognition gets right, e.g. "purple pancake". Case and punctuation don't matter.</div>
       <div class="row" style="margin-top:14px"><button class="primary" id="savepass">Save</button></div>
     </form>
+    <div class="card">
+      <h2>Remote Control</h2>
+      <div class="hint" style="margin:0 0 10px">With level 2 unlocked, Claude can start Remote Control. Then a machine called "Home Assistant" shows up in the Claude app and on claude.ai/code. Remote Control needs a one-time login to your Claude account here; the token from the Configuration tab can't do it.</div>
+      <div id="rcbody" class="muted">Loading…</div>
+    </div>
   </section>
 
   <section id="devices">
@@ -150,7 +159,7 @@ loaders.status = async () => {
 };
 
 // ---- settings
-const PASS = ["passcode"];
+const PASS = ["passcode", "full_access_passcode", "supervisor_passcode"];
 const FIELDS = ["main_model", "effort", "session_idle_minutes", "request_timeout", "extra_instructions"];
 loaders.settings = async () => {
   try {
@@ -161,6 +170,7 @@ loaders.settings = async () => {
     }
     FIELDS.forEach((k) => ($("#" + k).value = o[k] || (k === "effort" ? "default" : "")));
     PASS.forEach((k) => ($("#" + k).value = o[k] || ""));
+    loadRemote();
   }
   catch (e) { toast(e.message); }
 };
@@ -170,6 +180,27 @@ $("#settingsform").onsubmit = async (e) => {
   catch (err) { toast(`Not saved: ${err.message}`); }
   $("#savesettings").disabled = false;
 };
+// ---- remote control
+async function loadRemote() {
+  try {
+    const s = await api("api/remote");
+    const parts = [];
+    parts.push(s.loggedIn ? `<p><span class="ok">Logged in</span>${s.email ? ` as ${esc(s.email)}` : ""}. <button type="button" class="secondary" id="rclogout">Log out</button></p>`
+      : s.login?.url ? `<p>1. Open <a href="${esc(s.login.url)}" target="_blank" rel="noopener">this login link</a> and sign in.</p><p>2. Paste the code you get:</p><form class="row" id="rccodeform"><input class="grow" type="text" id="rccode" autocomplete="off"><button class="primary">Finish login</button></form>`
+      : `<p>Not logged in. <button type="button" class="primary" id="rclogin">Log in to Claude</button></p>`);
+    parts.push(s.running ? `<p><span class="ok">Running</span> at level ${s.level}. <button type="button" class="secondary" id="rcstop">Stop</button></p>` : `<p class="muted">Not running. Ask Claude to start it (needs level 2).</p>`);
+    $("#rcbody").innerHTML = parts.join("");
+    $("#rclogin")?.addEventListener("click", async () => { try { await api("api/remote/login", {}); } catch (e) { toast(e.message); } loadRemote(); });
+    $("#rclogout")?.addEventListener("click", async () => { try { await api("api/remote/logout", {}); } catch (e) { toast(e.message); } loadRemote(); });
+    $("#rcstop")?.addEventListener("click", async () => { try { await api("api/remote/stop", {}); } catch (e) { toast(e.message); } setTimeout(loadRemote, 1000); });
+    $("#rccodeform")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try { await api("api/remote/code", { code: $("#rccode").value }); toast("Logged in"); } catch (err) { toast(err.message); }
+      loadRemote();
+    });
+  } catch (e) { $("#rcbody").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+
 $("#passform").onsubmit = async (e) => {
   e.preventDefault(); $("#savepass").disabled = true;
   try { await api("api/options", Object.fromEntries(PASS.map((k) => [k, $("#" + k).value]))); toast("Saved"); await loaders.settings(); }
