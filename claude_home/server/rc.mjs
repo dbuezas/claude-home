@@ -82,7 +82,13 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
       "remote-control", "--name", "Home Assistant", "--permission-mode", "bypassPermissions",
     ], opts({ HA_URL: grant.url, HA_TOKEN: grant.token, CLAUDE_HOME_LEVEL: String(level) }));
     rc = { proc, level, output: "", release: grant.release };
-    const onData = (d) => { if (rc?.proc === proc) rc.output = (rc.output + d).slice(-20_000); };
+    let answered = false;
+    const onData = (d) => {
+      if (rc?.proc !== proc) return;
+      rc.output = (rc.output + d).slice(-20_000);
+      // First run asks for consent on the terminal; the user already unlocked level 2 for this.
+      if (!answered && /Enable Remote Control\?.*\(y\/n\)/i.test(rc.output)) { answered = true; proc.stdin.write("y\n"); }
+    };
     proc.stdout.on("data", onData);
     proc.stderr.on("data", onData);
     proc.on("close", (code) => {
