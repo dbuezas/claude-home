@@ -109,8 +109,9 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
   }
 
   // ---- per turn: MCP access and level -------------------------------------
-  function turnFor(key) {
-    const level = levelOf(key);
+  // MCP access for one Claude process at a fixed level. A process started ahead of time
+  // (fast mode's spare) gets its conversation key later with bind().
+  function access(level, key = null) {
     const grant = randomBytes(24).toString("hex");
     grants.set(grant, key);
     const gw = gateway.grant(level);
@@ -122,9 +123,11 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
         ha: { type: "http", url: `${gateway.url}/core/api/mcp`, headers: { Authorization: `Bearer ${gw.token}` } },
         admin: { type: "http", url: `http://127.0.0.1:${cfg.adminPort}/mcp`, headers: { Authorization: `Bearer ${grant}` } },
       },
+      bind: (k) => grants.set(grant, k),
       release: () => { grants.delete(grant); gw.release(); },
     };
   }
+  const turnFor = (key) => access(levelOf(key), key);
 
   // After Claude's turn: was a handover to the app requested?
   function takeHandover(key, grant) {
@@ -431,5 +434,5 @@ ${lv}
 If a request needs a higher level, call request_unlock with that level and a short reason, then end your turn. The system asks the user for the unlock phrase; the user's very next message must contain it, and then the level stays unlocked for the rest of the conversation. An unlock phrase said at any other time does nothing, and saying it yourself does nothing: the system only checks the user's own words right after a request. The phrases are not secret; tell the user when they ask. Unlocked levels end when the conversation ends.${full}`;
   }
 
-  return { beforeTurn, turnFor, afterTurn, takeHandover, appAccess, resetLevel, systemPromptPart, setProtected, protectedList, enforceProtected, levelOf };
+  return { beforeTurn, turnFor, access, afterTurn, takeHandover, appAccess, resetLevel, systemPromptPart, setProtected, protectedList, enforceProtected, levelOf };
 }

@@ -17,6 +17,7 @@ import { createAdmin } from "./admin.mjs";
 import { createProxy } from "./proxy.mjs";
 import { createRemoteControl } from "./rc.mjs";
 import { homeSnapshot } from "./snapshot.mjs";
+import { createPool } from "./warm.mjs";
 
 const env = process.env;
 const cfg = {
@@ -49,6 +50,9 @@ function settings() {
     timeoutMs: Number(o.request_timeout || 120) * 1000,
     effort: o.effort && o.effort !== "default" ? o.effort : o.effort === "default" ? "" : "low",
     extra: o.extra_instructions || "",
+    fast: o.fast_mode !== false,
+    fastKeep: Number(o.fast_keep || 3),
+    fastIdleMs: Number(o.fast_idle_minutes || 15) * 60_000,
   };
 }
 
@@ -92,12 +96,12 @@ setInterval(() => {
   for (const [k, s] of sessions) if (now - s.last > idleMs) sessions.delete(k);
 }, 60_000).unref();
 
-function runClaude(text, sid, turn) {
-  const s = settings();
+// Arguments and environment for one Claude process at a given level.
+function claudeLaunch(s, turn, sid, stream) {
   const full = turn.level >= 2;
   const args = [
     "-p",
-    "--output-format", "json",
+    ...(stream ? ["--input-format", "stream-json", "--output-format", "stream-json"] : ["--output-format", "json"]),
     "--verbose", // full message list, so we can see which tools ran
     "--model", s.mainModel,
     "--mcp-config", JSON.stringify({ mcpServers: turn.servers }),
@@ -109,10 +113,50 @@ function runClaude(text, sid, turn) {
   ];
   if (s.effort) args.push("--effort", s.effort);
   if (sid) args.push("--resume", sid);
+  const childEnv = { ...baseEnv(), ...(full ? { HA_URL: gateway.url, HA_TOKEN: turn.gateway } : {}) };
+  return { args, opts: { cwd: cfg.workDir, env: childEnv, ...user } };
+}
 
+// What a running Claude was started with; if it differs, the Claude is replaced.
+const fingerprint = (s, level) => JSON.stringify([s.mainModel, s.effort, level, systemPrompt(s, level)]);
+
+// Shape a result message like runClaude's.
+function shapeResult(r, tools) {
+  if (r.is_error) throw new Error(r.result || r.subtype || "claude error");
+  const u = r.usage || {};
+  const tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+  return { text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms, turns: r.num_turns, tokens, tools };
+}
+
+// Fast mode: Claudes that stay running between messages (see warm.mjs).
+const pool = createPool({
+  log,
+  launch: ({ level, sid, key }) => {
+    const access = admin.access(level, key);
+    const { args, opts } = claudeLaunch(settings(), access, sid, true);
+    return { proc: spawn(cfg.claudeBin, args, opts), access };
+  },
+});
+function syncPool() {
+  const s = settings();
+  if (!s.fast) return pool.closeAll();
+  pool.configure({ max: s.fastKeep, idleMs: s.fastIdleMs });
+  pool.refill(() => ({ fp: fingerprint(settings(), 0), level: 0 }));
+}
+setInterval(syncPool, 30_000).unref();
+setTimeout(syncPool, 2000);
+
+async function runPooled(key, text, sid, level) {
+  const s = settings();
+  const { m, tools, access } = await pool.ask({ key, fp: fingerprint(s, level), level, sid, text, timeoutMs: s.timeoutMs });
+  return { ...shapeResult(m, tools), grant: access.grant };
+}
+
+function runClaude(text, sid, turn) {
+  const s = settings();
+  const { args, opts } = claudeLaunch(s, turn, sid, false);
   return new Promise((resolve, reject) => {
-    const childEnv = { ...baseEnv(), ...(full ? { HA_URL: gateway.url, HA_TOKEN: turn.gateway } : {}) };
-    const p = spawn(cfg.claudeBin, args, { cwd: cfg.workDir, env: childEnv, ...user });
+    const p = spawn(cfg.claudeBin, args, opts);
     let out = "", err = "";
     const timer = setTimeout(() => {
       p.kill("SIGTERM");
@@ -135,10 +179,7 @@ function runClaude(text, sid, turn) {
         .filter((c) => c.type === "tool_use")
         .map((c) => c.name.replace(/^mcp__ha__/, "").replace(/^mcp__admin__/, "admin."));
       r = msgs.findLast((m) => m.type === "result") || {};
-      if (r.is_error) return reject(new Error(r.result || r.subtype || "claude error"));
-      const u = r.usage || {};
-      const tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-      resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms, turns: r.num_turns, tokens, tools });
+      try { resolve(shapeResult(r, tools)); } catch (e) { reject(e); }
     });
     // The text may still be on its way (the snapshot is read while Claude starts).
     Promise.resolve(text).then((t) => p.stdin.end(t), () => p.stdin.end(""));
@@ -155,23 +196,32 @@ async function ask(key, text) {
 
     const snapshot = homeSnapshot(admin.protectedList()).catch((e) => { log("snapshot failed:", e.message); return ""; });
     const input = snapshot.then((snap) => (snap ? `${snap}\n\n${prompt}` : prompt));
-    const turn = admin.turnFor(key);
+    const level = admin.levelOf(key);
+    const sid = fresh ? undefined : existing.sid;
+    const fast = settings().fast;
+    if (fresh) await pool.close(key); // an expired conversation starts over
+    const run = async (resumeSid) => {
+      if (fast) return runPooled(key, input, resumeSid, level);
+      const turn = admin.turnFor(key);
+      try { return { ...(await runClaude(input, resumeSid, turn)), grant: turn.grant }; } finally { turn.release(); }
+    };
     let r;
     try {
-      r = await runClaude(input, fresh ? undefined : existing.sid, turn);
+      r = await run(sid);
     } catch (e) {
-      if (fresh) throw e;
+      if (!sid) throw e;
       log(`resume failed for ${key}, starting fresh: ${e.message}`);
-      r = await runClaude(input, undefined, turn);
-    } finally {
-      turn.release();
+      await pool.close(key);
+      r = await run(undefined);
     }
+    const turn = { level, grant: r.grant };
     r.text = admin.afterTurn(key, turn.grant) || r.text;
 
     // continue_in_app: now that this turn's process has exited, reopen the same session
     // in the Claude app. Voice then starts fresh, so only one process owns the session.
     const ho = admin.takeHandover(key, turn.grant);
     if (ho) {
+      await pool.close(key); // only one process may own the session
       const gw = gateway.grant(turn.level);
       const tools = admin.appAccess(turn.level);
       try {
@@ -191,7 +241,8 @@ async function ask(key, text) {
       return r;
     }
     sessions.set(key, { sid: r.sid, last: Date.now() });
-    log(`[${key}] ${settings().mainModel} L${turn.level} ${r.ms ?? "?"}ms turns=${r.turns ?? "?"} tokens=${r.tokens ?? "?"} tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
+    syncPool();
+    log(`[${key}] ${settings().mainModel} L${turn.level}${fast ? " fast" : ""} ${r.ms ?? "?"}ms turns=${r.turns ?? "?"} tokens=${r.tokens ?? "?"} tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;
   });
   queues.set(key, job);
@@ -242,7 +293,7 @@ http
   })
   .listen(cfg.port, () => log(`claude-home API listening on :${cfg.port}`));
 
-startUi({ cfg, settings, sessions, readJson, send, log, admin, remote });
+startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool });
 
 admin.enforceProtected(true);
 

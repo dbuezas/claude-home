@@ -85,6 +85,19 @@
       </div>
       <label for="extra_instructions">Extra instructions</label>
       <textarea id="extra_instructions" placeholder="E.g. &quot;the den&quot; means the office. Ask before turning off the heating."></textarea>
+      <h2 style="margin-top:18px">Speed</h2>
+      <label for="fast_mode">Mode</label>
+      <select id="fast_mode"><option value="true">Fast: keep Claude running between messages</option><option value="false">Normal: start Claude for each message</option></select>
+      <div class="grid">
+        <div><label for="fast_keep">Keep up to (Claudes running)</label><input type="number" id="fast_keep" min="1" max="10"></div>
+        <div><label for="fast_idle_minutes">Close an unused one after (minutes)</label><input type="number" id="fast_idle_minutes" min="1" max="240"></div>
+      </div>
+      <div class="hint" id="fasthint"></div>
+      <table style="margin-top:8px"><thead><tr><th></th><th>Time per message</th><th>RAM</th></tr></thead><tbody>
+        <tr><td>Normal</td><td>+0.7–0.9 s (starting Claude and connecting to Home Assistant)</td><td>~190 MB, only while a message is answered</td></tr>
+        <tr><td>Fast</td><td>no start-up wait (also for a new conversation, thanks to the spare)</td><td>~190 MB for the first Claude, ~120 MB for each more, all the time</td></tr>
+      </tbody></table>
+      <div class="hint">Measured on a Home Assistant box with Opus/medium; a simple question takes about 2–3 s in fast mode. Closing a Claude loses nothing: the conversation is saved and the next message resumes it. When you unlock a level, that conversation's Claude restarts once.</div>
       <div class="hint">Changes apply to the next request. No restart needed. To change the Claude token, use the add-on's Configuration tab.</div>
       <div class="row" style="margin-top:14px"><button class="primary" id="savesettings">Save</button></div>
     </form>
@@ -152,6 +165,7 @@ loaders.status = async () => {
     $("#stats").innerHTML = [
       ["Home Assistant tools", s.mcp.ok ? `<span class="ok">Connected</span> · ${s.mcp.tools.length} tools` : `<span class="bad">Not reachable</span>`],
       ["Model", `${esc(s.models.main)} · effort ${esc(s.models.effort)}`],
+      ["Speed", s.fast.on ? `Fast · ${s.fast.running}/${s.fast.max} running${s.fast.spare ? " (1 spare)" : ""}` : "Normal"],
       ["Open conversations", s.sessions],
       ["Claude Code", esc(s.claudeVersion)],
     ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
@@ -160,7 +174,12 @@ loaders.status = async () => {
 
 // ---- settings
 const PASS = ["max_level"];
-const FIELDS = ["main_model", "effort", "session_idle_minutes", "request_timeout", "extra_instructions"];
+const FIELDS = ["main_model", "effort", "session_idle_minutes", "request_timeout", "extra_instructions", "fast_mode", "fast_keep", "fast_idle_minutes"];
+function fastHint() {
+  const on = $("#fast_mode").value === "true", n = Number($("#fast_keep").value) || 3;
+  $("#fasthint").textContent = on ? `Up to ${n} Claude${n > 1 ? "s" : ""} running: at most about ${190 + (n - 1) * 120} MB of RAM. One of them is a spare for the next new conversation.` : "Nothing stays running; each message starts Claude.";
+}
+["#fast_mode", "#fast_keep"].forEach((s) => $(s).addEventListener("input", fastHint));
 loaders.settings = async () => {
   try {
     const o = await api("api/options");
@@ -168,7 +187,12 @@ loaders.settings = async () => {
       const names = [...new Set(["opus", "sonnet", "haiku", o[k]].filter(Boolean))];
       $("#" + k).innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
     }
-    FIELDS.forEach((k) => ($("#" + k).value = o[k] || (k === "effort" ? "default" : "")));
+    FIELDS.forEach((k) => ($("#" + k).value = o[k] ?? (k === "effort" ? "default" : "")));
+    $("#effort").value = o.effort || "default";
+    $("#fast_mode").value = String(o.fast_mode !== false);
+    $("#fast_keep").value = o.fast_keep || 3;
+    $("#fast_idle_minutes").value = o.fast_idle_minutes || 15;
+    fastHint();
     $("#max_level").value = String(o.max_level === "" || o.max_level == null ? 3 : o.max_level);
     loadRemote();
   }

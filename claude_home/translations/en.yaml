@@ -25,6 +25,14 @@ configuration:
   max_level:
     name: Highest access level
     description: 0 = read and Assist only, 1 = "unlock protected entities", 2 = "unlock full access", 3 = "unlock supervisor". Claude asks; your next message must contain the phrase.
+  fast_mode:
+    name: Fast mode
+    description: Keep Claude running between messages (saves ~0.7-0.9 s per message, costs ~120-190 MB of RAM per running Claude).
+  fast_keep:
+    name: Claudes kept running
+    description: At most this many (one is a spare for the next new conversation).
+  fast_idle_minutes:
+    name: Close unused Claude after (minutes)
   protected_entities:
     name: Protected entities
     description: Entity ids hidden from Assist. Claude can read them, but controlling them needs level 1 ("unlock protected entities"). Easier to manage on the Claude page (Protected tab).

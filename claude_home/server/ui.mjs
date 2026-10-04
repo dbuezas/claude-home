@@ -19,6 +19,9 @@ const EDITABLE = {
   max_level: (v) => Math.min(3, Math.max(0, Math.round(Number(v)))),
   request_timeout: (v) => Math.min(600, Math.max(10, Math.round(Number(v) || 120))),
   extra_instructions: (v) => String(v ?? ""),
+  fast_mode: (v) => v === true || v === "true",
+  fast_keep: (v) => Math.min(10, Math.max(1, Math.round(Number(v) || 3))),
+  fast_idle_minutes: (v) => Math.min(240, Math.max(1, Math.round(Number(v) || 15))),
 };
 
 
@@ -46,7 +49,7 @@ async function mcpTools(mcpConfigPath) {
   return value;
 }
 
-export function startUi({ cfg, settings, sessions, readJson, send, log, admin, remote }) {
+export function startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool }) {
   const allowAny = env.UI_ALLOW_ANY === "1"; // local development only
 
   async function status() {
@@ -57,6 +60,7 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
       claudeVersion,
       models: { main: s.mainModel, effort: s.effort || "default" },
       sessions: sessions.size,
+      fast: { on: s.fast, ...pool.status() },
       mcp: await mcpTools(cfg.mcpConfig),
     };
   }
@@ -79,6 +83,7 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
     const next = { ...readOptions(cfg.optionsFile) };
     for (const [k, clean] of Object.entries(EDITABLE)) if (k in changes) next[k] = clean(changes[k]);
     await writeOptions(cfg.optionsFile, next);
+    syncPool();
   }
 
   const routes = {
