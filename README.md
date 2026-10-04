@@ -100,7 +100,6 @@ All of these are also on the Settings page.
 | `protected_entities` | – | Easier to manage on the Protected tab |
 | `extra_instructions` | – | Appended to the system prompt (room nicknames, house quirks) |
 | `api_token` | auto | Token the integration uses (shown in the add-on log) |
-| `ha_token` | – | Legacy; only used by the add-on's start-up check |
 
 ## Notes
 

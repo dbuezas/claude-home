@@ -16,9 +16,6 @@ configuration:
   api_token:
     name: API token
     description: Token the Home Assistant integration uses to call this add-on. Leave empty to auto-generate (shown in the log).
-  ha_token:
-    name: Home Assistant long-lived token
-    description: Optional. Only needed if the add-on can't reach HA's MCP server with its built-in Supervisor token.
   extra_instructions:
     name: Extra instructions
     description: Appended to the system prompt, e.g. house layout, nicknames for rooms.

@@ -31,17 +31,18 @@ const html = readFileSync(new URL("./ui.html", import.meta.url));
 let claudeVersion;
 let toolsCache = { at: 0, value: null };
 
-async function mcpTools(mcpConfigPath) {
+async function mcpTools(gateway) {
   if (Date.now() - toolsCache.at < 30_000) return toolsCache.value;
   let value;
   try {
-    const { url, headers } = JSON.parse(readFileSync(mcpConfigPath, "utf8")).mcpServers.ha;
+    const g = gateway.grant(0);
+    const url = `${gateway.url}/core/api/mcp`, headers = { Authorization: `Bearer ${g.token}` };
     const client = new Client({ name: "claude-home-ui", version: "0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
     try {
       const { tools } = await client.listTools();
       value = { ok: true, tools: tools.map((t) => ({ name: t.name, description: (t.description || "").split("\n")[0] })) };
-    } finally { await client.close(); }
+    } finally { await client.close(); g.release(); }
   } catch (e) {
     value = { ok: false, error: e.message, tools: [] };
   }
@@ -49,7 +50,7 @@ async function mcpTools(mcpConfigPath) {
   return value;
 }
 
-export function startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool }) {
+export function startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool, gateway }) {
   const allowAny = env.UI_ALLOW_ANY === "1"; // local development only
 
   async function status() {
@@ -61,7 +62,7 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
       models: { main: s.mainModel, effort: s.effort || "default" },
       sessions: sessions.size,
       fast: { on: s.fast, ...pool.status() },
-      mcp: await mcpTools(cfg.mcpConfig),
+      mcp: await mcpTools(gateway),
     };
   }
 

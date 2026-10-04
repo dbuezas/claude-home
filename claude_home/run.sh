@@ -33,20 +33,12 @@ else
 fi
 export API_TOKEN
 
-# --- how Claude reaches Home Assistant's MCP server ---
-if bashio::config.has_value 'ha_token'; then
-  HA_MCP_URL="http://homeassistant:8123/api/mcp"
-  HA_AUTH="$(bashio::config 'ha_token')"
-else
-  HA_MCP_URL="http://supervisor/core/api/mcp"
-  HA_AUTH="${SUPERVISOR_TOKEN}"
-fi
-jq -n --arg url "$HA_MCP_URL" --arg auth "Bearer $HA_AUTH" \
-  '{mcpServers: {ha: {type: "http", url: $url, headers: {Authorization: $auth}}}}' > /data/mcp.json
-chmod 600 /data/mcp.json
+# Claude reaches Home Assistant only through the add-on's gateway (proxy.mjs), which
+# uses the Supervisor token. Older versions wrote a token file here; remove it.
+rm -f /data/mcp.json
 
 # Models, timeouts and extra instructions are read live from /data/options.json.
-export MCP_CONFIG=/data/mcp.json WORK_DIR=/data/work PORT=8099 UI_PORT=8098 CLAUDE_HOME_DIR=/data/home
+export WORK_DIR=/data/work PORT=8099 UI_PORT=8098 CLAUDE_HOME_DIR=/data/home
 chmod 600 /data/api_token 2>/dev/null || true
 
 # Claude's guide to this add-on (agent-guide.md in the repo). Claude Code loads CLAUDE.md
@@ -54,13 +46,12 @@ chmod 600 /data/api_token 2>/dev/null || true
 cp /opt/server/agent-guide.md /data/work/CLAUDE.md
 chown claude:claude /data/work/CLAUDE.md
 
-# --- sanity check: can Claude see HA's MCP server? ---
-if ! curl -sf -o /dev/null -X POST -H "Authorization: Bearer $HA_AUTH" \
+# --- sanity check: can the add-on reach HA's MCP server? ---
+if ! curl -sf -o /dev/null -X POST -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
      -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
      -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}' \
-     "$HA_MCP_URL"; then
-  bashio::log.warning "Home Assistant MCP server not reachable at ${HA_MCP_URL}."
-  bashio::log.warning "Add the 'Model Context Protocol Server' integration in HA. If it is installed and this still fails, create a long-lived token (your profile -> Security) and set it as 'ha_token'."
+     "http://supervisor/core/api/mcp"; then
+  bashio::log.warning "Home Assistant MCP server not reachable. Add the 'Model Context Protocol Server' integration in HA (Settings -> Devices & services)."
 fi
 
 # --- tell the integration where we are (Supervisor discovery) ---

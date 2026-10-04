@@ -27,7 +27,6 @@ const cfg = {
   gatewayPort: Number(env.GATEWAY_PORT || 8096),
   apiToken: env.API_TOKEN || "",
   claudeBin: env.CLAUDE_BIN || "claude",
-  mcpConfig: env.MCP_CONFIG || "/data/mcp.json",
   workDir: env.WORK_DIR || "/data/work",
   optionsFile: env.OPTIONS_FILE || "/data/options.json",
 };
@@ -310,7 +309,7 @@ http
   })
   .listen(cfg.port, () => log(`claude-home API listening on :${cfg.port}`));
 
-startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool });
+startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool, gateway });
 
 admin.enforceProtected(true);
 
