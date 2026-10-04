@@ -1,5 +1,6 @@
 // A small "home snapshot" sent with every message: the main devices exposed to Assist,
-// grouped by area, with their current state. It lets Claude answer most state questions
+// grouped by area, with their current state. The first message of a conversation gets
+// all of it; later ones only what changed (Claude has the rest in its history). It lets Claude answer most state questions
 // and find the right device without a tool round trip, for ~3k tokens instead of the
 // ~50k of Home Assistant's GetLiveContext.
 import { haWs } from "./ha.mjs";
@@ -41,8 +42,9 @@ function state(s) {
   return s.state;
 }
 
+// Current state of the main devices: Map entity_id -> { area, text, value, unit }.
 // protectedIds: entities Claude can read but not control with the Assist tools.
-export async function homeSnapshot(protectedIds = []) {
+export async function homeState(protectedIds = []) {
   const [{ exposed, ent, areaOf }, [states]] = await Promise.all([loadRegistry(), haWs([{ type: "get_states" }])]);
   const prot = new Set(protectedIds);
   const keep = (s) => {
@@ -52,11 +54,49 @@ export async function homeSnapshot(protectedIds = []) {
     if (s.state === "unavailable" || s.state === "unknown") return false;
     return CONTROL.has(d) || (SENSORS[d] || []).includes(s.attributes.device_class);
   };
-  const byArea = {};
+  const items = new Map();
   for (const s of states.filter(keep).slice(0, MAX_ITEMS)) {
     const name = s.attributes.friendly_name || s.entity_id;
-    (byArea[areaOf(s.entity_id)] ||= []).push(`${name} (${s.entity_id}${prot.has(s.entity_id) ? ", protected" : ""}): ${state(s)}`);
+    const numeric = s.entity_id.startsWith("sensor.") && !Number.isNaN(Number(s.state));
+    items.set(s.entity_id, {
+      area: areaOf(s.entity_id),
+      label: `${name} (${s.entity_id}${prot.has(s.entity_id) ? ", protected" : ""})`,
+      text: state(s),
+      value: numeric ? Number(s.state) : null,
+      unit: s.attributes.unit_of_measurement || "",
+    });
   }
-  const lines = Object.entries(byArea).sort(([a], [b]) => a.localeCompare(b)).map(([area, xs]) => `${area}: ${xs.join("; ")}`);
-  return `[Home snapshot, ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}. Main devices only; use tools for anything else.]\n${lines.join("\n")}`;
+  return { time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), items };
+}
+
+function byArea(entries) {
+  const g = {};
+  for (const [, it, text] of entries) (g[it.area] ||= []).push(`${it.label}: ${text}`);
+  return Object.entries(g).sort(([a], [b]) => a.localeCompare(b)).map(([area, xs]) => `${area}: ${xs.join("; ")}`).join("\n");
+}
+
+export function renderFull(cur) {
+  return `[Home snapshot, ${cur.time}. Main devices only; use tools for anything else.]\n${byArea([...cur.items].map(([id, it]) => [id, it, it.text]))}`;
+}
+
+// Small sensor drifts are not worth a line in every message.
+function changed(a, b) {
+  if (a.value != null && b.value != null) return Math.abs(a.value - b.value) >= (b.unit === "%" ? 2 : 0.5);
+  return a.text !== b.text;
+}
+
+// Only what changed since `prev` (the last snapshot this conversation got).
+// Returns the text and the state Claude now knows (unchanged sensors keep their old value).
+export function renderDiff(prev, cur) {
+  const known = new Map(prev.items);
+  const lines = [];
+  for (const [id, it] of cur.items) {
+    const old = prev.items.get(id);
+    if (!old || changed(old, it)) { lines.push([id, it, old ? `${old.text} → ${it.text}` : `${it.text} (new)`]); known.set(id, it); }
+  }
+  for (const [id, it] of prev.items) if (!cur.items.has(id)) { lines.push([id, it, "now unavailable"]); known.delete(id); }
+  const text = lines.length
+    ? `[Home snapshot changes since ${prev.time} (everything else as before):]\n${byArea(lines)}`
+    : `[Home snapshot: nothing changed since ${prev.time}.]`;
+  return { text, known: { time: cur.time, items: known } };
 }

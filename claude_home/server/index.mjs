@@ -16,7 +16,7 @@ import { startUi } from "./ui.mjs";
 import { createAdmin } from "./admin.mjs";
 import { createProxy } from "./proxy.mjs";
 import { createRemoteControl } from "./rc.mjs";
-import { homeSnapshot } from "./snapshot.mjs";
+import { homeState, renderFull, renderDiff } from "./snapshot.mjs";
 import { createPool } from "./warm.mjs";
 
 const env = process.env;
@@ -76,7 +76,7 @@ const admin = createAdmin({ cfg, settings, log, gateway, remote });
 
 const systemPrompt = (s, level) => `You are the voice/chat assistant of a home, running inside Home Assistant.
 Use the Home Assistant tools (mcp__ha__*) to read states and control devices.
-Each user message starts with a [Home snapshot]: the main devices by area with their current state. Answer from it when it is enough, without tools. To control a device, call the Assist tool directly with its name from the snapshot. For anything not in it, use find_entities.
+Each user message starts with a [Home snapshot] (the main devices by area with their current state) or, later in a conversation, only the [Home snapshot changes] since the last one; together they are the current state. Answer from it when it is enough, without tools. To control a device, call the Assist tool directly with its name from the snapshot. For anything not in it, use find_entities.
 Replies are often spoken: answer in one or two short sentences, plain text, no markdown, no lists.
 Reply in the language the user used. If you need clarification, ask one short question.${admin.systemPromptPart(level)}
 ${s.extra}`.trim();
@@ -90,10 +90,11 @@ ${s.extra}`.trim();
 // ---- sessions: external conversation id -> Claude Code session id ----------
 const sessions = new Map(); // key -> { sid, last }
 const queues = new Map(); // key -> promise chain (serialize turns per conversation)
+const known = new Map(); // key -> home state this conversation's Claude has seen (for change-only snapshots)
 
 setInterval(() => {
   const now = Date.now(), { idleMs } = settings();
-  for (const [k, s] of sessions) if (now - s.last > idleMs) sessions.delete(k);
+  for (const [k, s] of sessions) if (now - s.last > idleMs) { sessions.delete(k); known.delete(k); }
 }, 60_000).unref();
 
 // Arguments and environment for one Claude process at a given level.
@@ -194,13 +195,28 @@ async function ask(key, text) {
     // If this message answers an unlock request with its phrase, the level goes up here.
     const prompt = await admin.beforeTurn(key, text);
 
-    const snapshot = homeSnapshot(admin.protectedList()).catch((e) => { log("snapshot failed:", e.message); return ""; });
-    const input = snapshot.then((snap) => (snap ? `${snap}\n\n${prompt}` : prompt));
+    // Full snapshot for a new session, otherwise only the changes since the last one.
+    const current = homeState(admin.protectedList()).catch((e) => { log("snapshot failed:", e.message); return null; });
+    const inputFor = (full) => current.then((cur) => {
+      if (!cur) return prompt;
+      const prev = !full && known.get(key);
+      if (!prev) {
+        known.set(key, cur);
+        const full = renderFull(cur);
+        log(`[${key}] snapshot: full, ${full.length} bytes`);
+        return `${full}\n\n${prompt}`;
+      }
+      const d = renderDiff(prev, cur);
+      known.set(key, d.known);
+      log(`[${key}] snapshot: changes only, ${d.text.length} bytes`);
+      return `${d.text}\n\n${prompt}`;
+    });
     const level = admin.levelOf(key);
     const sid = fresh ? undefined : existing.sid;
     const fast = settings().fast;
     if (fresh) await pool.close(key); // an expired conversation starts over
     const run = async (resumeSid) => {
+      const input = inputFor(!resumeSid); // a fresh session needs the full snapshot
       if (fast) return runPooled(key, input, resumeSid, level);
       const turn = admin.turnFor(key);
       try { return { ...(await runClaude(input, resumeSid, turn)), grant: turn.grant }; } finally { turn.release(); }
@@ -232,6 +248,7 @@ async function ask(key, text) {
           appendSystemPrompt: appPrompt(settings(), turn.level),
         });
         sessions.delete(key);
+        known.delete(key);
         admin.resetLevel(key);
         r.text = `This conversation now continues in the Claude app as "${h.name}". Next time you talk to me here, we start fresh.`;
       } catch (e) {
