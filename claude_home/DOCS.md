@@ -6,7 +6,7 @@ Claude Code, logged in with **your Claude subscription**, running as a Home Assi
 - **Fast** – about 2 s for a simple question: Claude stays running between messages, and every message carries a small snapshot of the main devices, so most questions need no tool call.
 - **Reads everything, changes little by default** – Claude can read every entity and control the ones exposed to Assist. More needs an access level you unlock in the conversation (see below).
 - **Continue in the Claude app** – hand a voice conversation over to the Claude app or claude.ai/code, with its full history.
-- **Settings page** in the HA sidebar (Claude): model, speed, access levels, protected devices, Remote Control login.
+- **Settings page** in the HA sidebar (Claude): Claude login, model, speed, access levels, protected devices.
 
 ```
 Assist ─► claude_home integration ─HTTP+token─► add-on ─► claude (user "claude") ─► gateway ─► Home Assistant
@@ -21,10 +21,11 @@ Requires HA OS or Supervised (it's an add-on) and HA 2025.8+.
 - Settings → Devices & services → Add integration → **Model Context Protocol Server**. Claude controls the house through it.
 - Settings → Voice assistants → Expose: the entities Claude may control without unlocking a level.
 
-**1. Subscription token** – on any computer with Claude Code: `claude setup-token`, copy the `sk-ant-oat…` token.
+**1. Add-on** – [![Add the add-on repository to my Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fdbuezas%2Fclaude-home)
+(or Settings → Add-ons → Add-on Store → ⋮ → Repositories → add `https://github.com/dbuezas/claude-home`) → install **Claude Home** (builds locally, a few minutes) → Start.
 
-**2. Add-on** – [![Add the add-on repository to my Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fdbuezas%2Fclaude-home)
-(or Settings → Add-ons → Add-on Store → ⋮ → Repositories → add `https://github.com/dbuezas/claude-home`) → install **Claude Home** (builds locally, a few minutes) → Configuration: paste the token → Start. Check the log.
+**2. Log in** – open **Claude** in the sidebar → Settings → Claude account → **Log in to Claude**. Open the link, sign in with your Claude subscription, paste the code back. One login covers everything, including continuing in the Claude app.
+(Alternative: run `claude setup-token` on any computer with Claude Code and paste the `sk-ant-oat…` token into the add-on's Configuration tab. Continuing in the Claude app still needs the login.)
 
 **3. Integration** – [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dbuezas&repository=claude-home&category=integration)
 (or HACS → ⋮ → Custom repositories → same URL, type *Integration*) → download → restart HA.
@@ -37,10 +38,10 @@ Enable *Prefer handling commands locally* so "turn off the kitchen light" stays 
 
 Sidebar → **Claude**:
 - **Status** – connection to Home Assistant, model, how many Claudes are running.
-- **Settings** – model and effort, conversation memory, timeout, extra instructions, speed (fast or normal, how many Claudes to keep, when to close unused ones), the highest access level, Remote Control login and running app sessions.
+- **Settings** – Claude account login and running app sessions, model and effort, conversation memory, timeout, extra instructions, speed (fast or normal, how many Claudes to keep, when to close unused ones), the highest access level.
 - **Protected** – which devices need level 1 before Claude may control them.
 
-Changes apply to the next message; no restart needed (except the Claude token).
+Changes apply to the next message; no restart needed (except for the optional token in the Configuration tab).
 
 ## Access levels
 
@@ -69,7 +70,7 @@ At level 2 ("unlock full access"), say "continue this in the app". The add-on re
 
 App sessions keep running, also across days, until you stop them (Settings page, or ask Claude "stop my app sessions") or restart the add-on. In the app, the level can't be raised; unlock it by voice first.
 
-This needs a one-time login to your Claude account (Settings → Remote Control); the token from the Configuration tab can't do Remote Control.
+This uses the login from install step 2; a `claude setup-token` token can't do Remote Control.
 
 ## Speed
 
@@ -89,7 +90,7 @@ All of these are also on the Settings page.
 
 | Option | Default | |
 |---|---|---|
-| `claude_oauth_token` | – | From `claude setup-token` |
+| `claude_oauth_token` | – | Optional: a `claude setup-token` token instead of the login on the Settings page |
 | `main_model` | `opus` | `opus`, `sonnet`, `haiku` or a full model name |
 | `effort` | `low` | Thinking effort; `default` uses the model's own |
 | `session_idle_minutes` | 15 | Conversation memory |
