@@ -65,7 +65,7 @@ const user = (() => {
 
 // The environment Claude gets: no Supervisor token, no add-on API token.
 const baseEnv = () => {
-  const keep = ["PATH", "LANG", "TZ", "USER", "LOGNAME", "TMPDIR", "CLAUDE_CODE_OAUTH_TOKEN", "DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"];
+  const keep = ["PATH", "LANG", "TZ", "USER", "LOGNAME", "TMPDIR", "DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"];
   return { ...Object.fromEntries(keep.filter((k) => env[k]).map((k) => [k, env[k]])), HOME: env.CLAUDE_HOME_DIR || env.HOME };
 };
 

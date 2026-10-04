@@ -4,8 +4,7 @@
 //
 // Interactive Claude needs a terminal; ptyrun.py provides a pseudo-terminal and
 // answers the start-up questions. Everything runs as the unprivileged "claude" user.
-// Remote Control needs a one-time full Claude login (the long-lived token from
-// `claude setup-token` can't do it), done from the web UI.
+// Claude uses the one-time login done from the web UI (stored in the add-on).
 //
 // Handed-over sessions show up in the Claude app; they keep running (also across days)
 // until stopped from the web UI, by asking Claude, or by restarting the add-on.
@@ -19,10 +18,9 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
   let login = null; // { proc, url, output, ready }
   const handovers = new Map(); // id -> { id, name, sid, level, started, url, output, proc, release }
 
-  // Remote Control and login must use the full login, not CLAUDE_CODE_OAUTH_TOKEN.
+  // Remote Control needs Claude's normal network traffic.
   const env = (extra = {}) => {
     const e = { ...baseEnv(), ...extra };
-    delete e.CLAUDE_CODE_OAUTH_TOKEN;
     delete e.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
     return e;
   };

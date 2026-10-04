@@ -1,7 +1,4 @@
 configuration:
-  claude_oauth_token:
-    name: Claude token (optional)
-    description: Not needed if you log in on the Claude page in the sidebar (Settings, Claude account). Alternative - run `claude setup-token` on any computer with Claude Code and paste the sk-ant-oat... token here.
   main_model:
     name: Model
     description: Handles every request. opus, sonnet or haiku (or a full model name). Opus with low effort was fastest in tests.

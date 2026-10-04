@@ -25,7 +25,6 @@ Requires HA OS or Supervised (it's an add-on) and HA 2025.8+.
 (or Settings → Add-ons → Add-on Store → ⋮ → Repositories → add `https://github.com/dbuezas/claude-home`) → install **Claude Home** (builds locally, a few minutes) → Start.
 
 **2. Log in** – open **Claude** in the sidebar → Settings → Claude account → **Log in to Claude**. Open the link, sign in with your Claude subscription, paste the code back. One login covers everything, including continuing in the Claude app.
-<sub>Alternative: run `claude setup-token` on any computer with Claude Code and paste the `sk-ant-oat…` token into the add-on's Configuration tab. Continuing in the Claude app still needs the login.</sub>
 
 **3. Integration** – [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dbuezas&repository=claude-home&category=integration)
 (or HACS → ⋮ → Custom repositories → same URL, type *Integration*) → download → restart HA.
@@ -41,7 +40,7 @@ Sidebar → **Claude**:
 - **Settings** – Claude account login and running app sessions, model and effort, conversation memory, timeout, extra instructions, speed (fast or normal, how many Claudes to keep, when to close unused ones), the highest access level.
 - **Protected** – which devices need level 1 before Claude may control them.
 
-Changes apply to the next message; no restart needed (except for the optional token in the Configuration tab).
+Changes apply to the next message; no restart needed.
 
 ## Access levels
 
@@ -70,7 +69,7 @@ At level 2 ("unlock full access"), say "continue this in the app". The add-on re
 
 App sessions keep running, also across days, until you stop them (Settings page, or ask Claude "stop my app sessions") or restart the add-on. In the app, the level can't be raised; unlock it by voice first.
 
-This uses the login from install step 2; a `claude setup-token` token can't do Remote Control.
+This uses the login from install step 2.
 
 ## Speed
 
@@ -90,7 +89,6 @@ All of these are also on the Settings page.
 
 | Option | Default | |
 |---|---|---|
-| `claude_oauth_token` | – | Optional: a `claude setup-token` token instead of the login on the Settings page |
 | `main_model` | `opus` | `opus`, `sonnet`, `haiku` or a full model name |
 | `effort` | `low` | Thinking effort; `default` uses the model's own |
 | `session_idle_minutes` | 15 | Conversation memory |

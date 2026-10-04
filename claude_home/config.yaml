@@ -1,5 +1,5 @@
 name: Claude Home
-version: "0.13.1"
+version: "0.14.0"
 slug: claude_home
 description: Claude Code (your Claude subscription) as a Home Assistant conversation agent
 url: https://github.com/dbuezas/claude-home
@@ -29,7 +29,6 @@ options:
   session_idle_minutes: 15
   request_timeout: 120
 schema:
-  claude_oauth_token: password?
   main_model: str
   session_idle_minutes: int(1,1440)
   request_timeout: int(10,600)

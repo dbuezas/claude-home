@@ -53,7 +53,6 @@
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .row > .grow { flex: 1; min-width: 160px; }
   .hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
-  .alt { font-size: 12px; color: var(--muted); opacity: .6; margin: 0 0 10px; }
   .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; display: none; max-width: calc(100% - 32px); }
   .toggle { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
   .ent-name { font-weight: 500; } .ent-id { font-size: 12px; color: var(--muted); word-break: break-all; }
@@ -76,8 +75,7 @@
   <section id="settings">
     <div class="card">
       <h2>Claude account</h2>
-      <div class="hint" style="margin:0 0 4px">Log in once with your Claude subscription. Claude Home uses this login for everything.</div>
-      <div class="alt">Alternative: paste a <code>claude setup-token</code> token in the add-on's Configuration tab. Continuing in the Claude app still needs this login.</div>
+      <div class="hint" style="margin:0 0 10px">Log in once with your Claude subscription. Claude Home uses this login for everything.</div>
       <h2 style="margin-top:14px">Continue in the Claude app</h2>
       <div class="hint" style="margin:0 0 10px">At level 2 ("unlock full access"), say "continue this in the app". The conversation then moves to the Claude app and claude.ai/code, with its full history and the same level. It keeps running, also across days, until you stop it here, ask Claude to stop it, or restart the add-on.</div>
       <div id="rcbody" class="muted">Loading…</div>
@@ -167,7 +165,7 @@ loaders.status = async () => {
   try {
     const s = await api("api/status");
     $("#stats").innerHTML = [
-      ["Claude account", s.account.loggedIn ? `<span class="ok">Logged in</span>${s.account.email ? ` · ${esc(s.account.email)}` : ""}` : s.account.token ? "Token from Configuration" : `<span class="bad">Not logged in</span> · Settings → Claude account`],
+      ["Claude account", s.account.loggedIn ? `<span class="ok">Logged in</span>${s.account.email ? ` · ${esc(s.account.email)}` : ""}` : `<span class="bad">Not logged in</span> · Settings → Claude account`],
       ["Home Assistant tools", s.mcp.ok ? `<span class="ok">Connected</span> · ${s.mcp.tools.length} tools` : `<span class="bad">Not reachable</span>`],
       ["Model", `${esc(s.models.main)} · effort ${esc(s.models.effort)}`],
       ["Speed", s.fast.on ? `Fast · ${s.fast.running}/${s.fast.max} running${s.fast.spare ? " (1 spare)" : ""}` : "Normal"],
