@@ -16,6 +16,7 @@ import { startUi } from "./ui.mjs";
 import { createAdmin } from "./admin.mjs";
 import { createProxy } from "./proxy.mjs";
 import { createRemoteControl } from "./rc.mjs";
+import { homeSnapshot } from "./snapshot.mjs";
 
 const env = process.env;
 const cfg = {
@@ -71,6 +72,7 @@ const admin = createAdmin({ cfg, settings, log, gateway, remote });
 
 const systemPrompt = (s, level) => `You are the voice/chat assistant of a home, running inside Home Assistant.
 Use the Home Assistant tools (mcp__ha__*) to read states and control devices.
+Each user message starts with a [Home snapshot]: the main devices by area with their current state. Answer from it when it is enough, without tools. To control a device, call the Assist tool directly with its name from the snapshot. For anything not in it, use find_entities.
 Replies are often spoken: answer in one or two short sentences, plain text, no markdown, no lists.
 Reply in the language the user used. If you need clarification, ask one short question.${admin.systemPromptPart(level)}
 ${s.extra}`.trim();
@@ -138,7 +140,8 @@ function runClaude(text, sid, turn) {
       const tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
       resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms, turns: r.num_turns, tokens, tools });
     });
-    p.stdin.end(text);
+    // The text may still be on its way (the snapshot is read while Claude starts).
+    Promise.resolve(text).then((t) => p.stdin.end(t), () => p.stdin.end(""));
   });
 }
 
@@ -150,14 +153,16 @@ async function ask(key, text) {
     // If this message answers an unlock request with its phrase, the level goes up here.
     const prompt = await admin.beforeTurn(key, text);
 
+    const snapshot = homeSnapshot(admin.protectedList()).catch((e) => { log("snapshot failed:", e.message); return ""; });
+    const input = snapshot.then((snap) => (snap ? `${snap}\n\n${prompt}` : prompt));
     const turn = admin.turnFor(key);
     let r;
     try {
-      r = await runClaude(prompt, fresh ? undefined : existing.sid, turn);
+      r = await runClaude(input, fresh ? undefined : existing.sid, turn);
     } catch (e) {
       if (fresh) throw e;
       log(`resume failed for ${key}, starting fresh: ${e.message}`);
-      r = await runClaude(prompt, undefined, turn);
+      r = await runClaude(input, undefined, turn);
     } finally {
       turn.release();
     }
