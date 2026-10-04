@@ -1,3 +1,6 @@
+// What the snapshot leaves out; told to Claude in the system prompt (keep in sync with keep()).
+export const SNAPSHOT_RULES = `What the [Home snapshot] contains: only entities exposed to Assist (plus protected ones) of these kinds: lights, switches, climate, covers, fans, media players, locks, vacuums, scenes, scripts, input booleans, humidifiers, water heaters, alarm panels, valves, temperature and humidity sensors, and window/door sensors. It leaves out everything else: other sensors (power, energy, battery, motion, presence, ...), buttons, numbers, selects, cameras, updates, diagnostic and configuration entities, hidden or disabled ones, and any entity that is currently unavailable or unknown. So a device missing from the snapshot may still exist, or be unavailable: check with find_entities before saying it doesn't exist or what state it is in.`;
+
 // A small "home snapshot" sent with every message: the main devices exposed to Assist,
 // grouped by area, with their current state. The first message of a conversation gets
 // all of it; later ones only what changed (Claude has the rest in its history). It lets Claude answer most state questions
@@ -86,7 +89,7 @@ export function renderDiff(prev, cur) {
     const old = prev.items.get(id);
     if (!old || old.text !== it.text) { lines.push([id, it, old ? `${old.text} → ${it.text}` : `${it.text} (new)`]); known.set(id, it); }
   }
-  for (const [id, it] of prev.items) if (!cur.items.has(id)) { lines.push([id, it, "now unavailable"]); known.delete(id); }
+  for (const [id, it] of prev.items) if (!cur.items.has(id)) { lines.push([id, it, "no longer listed (unavailable, unknown or removed)"]); known.delete(id); }
   const text = lines.length
     ? `[Home snapshot changes since ${prev.time} (everything else as before):]\n${byArea(lines)}`
     : `[Home snapshot: nothing changed since ${prev.time}.]`;

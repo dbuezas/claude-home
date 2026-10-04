@@ -16,7 +16,7 @@ import { startUi } from "./ui.mjs";
 import { createAdmin } from "./admin.mjs";
 import { createProxy } from "./proxy.mjs";
 import { createRemoteControl } from "./rc.mjs";
-import { homeState, renderFull, renderDiff } from "./snapshot.mjs";
+import { homeState, renderFull, renderDiff, SNAPSHOT_RULES } from "./snapshot.mjs";
 import { createPool } from "./warm.mjs";
 
 const env = process.env;
@@ -75,7 +75,8 @@ const admin = createAdmin({ cfg, settings, log, gateway, remote });
 
 const systemPrompt = (s, level) => `You are the voice/chat assistant of a home, running inside Home Assistant.
 Use the Home Assistant tools (mcp__ha__*) to read states and control devices.
-Each user message starts with a [Home snapshot] (the main devices by area with their current state) or, later in a conversation, only the [Home snapshot changes] since the last one; together they are the current state. Answer from it when it is enough, without tools. To control a device, call the Assist tool directly with its name from the snapshot. For anything not in it, use find_entities.
+Each user message starts with a [Home snapshot] (the main devices by area with their current state) or, later in a conversation, only the [Home snapshot changes] since the last one; together they are the current state. Answer from it when it is enough, without tools.
+${SNAPSHOT_RULES} To control a device, call the Assist tool directly with its name from the snapshot. For anything not in it, use find_entities.
 Replies are often spoken: answer in one or two short sentences, plain text, no markdown, no lists.
 Reply in the language the user used. If you need clarification, ask one short question.${admin.systemPromptPart(level)}
 ${s.extra}`.trim();
