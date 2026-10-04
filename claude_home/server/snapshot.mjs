@@ -42,7 +42,7 @@ function state(s) {
   return s.state;
 }
 
-// Current state of the main devices: Map entity_id -> { area, text, value, unit }.
+// Current state of the main devices: Map entity_id -> { area, label, text }.
 // protectedIds: entities Claude can read but not control with the Assist tools.
 export async function homeState(protectedIds = []) {
   const [{ exposed, ent, areaOf }, [states]] = await Promise.all([loadRegistry(), haWs([{ type: "get_states" }])]);
@@ -57,13 +57,10 @@ export async function homeState(protectedIds = []) {
   const items = new Map();
   for (const s of states.filter(keep).slice(0, MAX_ITEMS)) {
     const name = s.attributes.friendly_name || s.entity_id;
-    const numeric = s.entity_id.startsWith("sensor.") && !Number.isNaN(Number(s.state));
     items.set(s.entity_id, {
       area: areaOf(s.entity_id),
       label: `${name} (${s.entity_id}${prot.has(s.entity_id) ? ", protected" : ""})`,
       text: state(s),
-      value: numeric ? Number(s.state) : null,
-      unit: s.attributes.unit_of_measurement || "",
     });
   }
   return { time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), items };
@@ -79,20 +76,14 @@ export function renderFull(cur) {
   return `[Home snapshot, ${cur.time}. Main devices only; use tools for anything else.]\n${byArea([...cur.items].map(([id, it]) => [id, it, it.text]))}`;
 }
 
-// Small sensor drifts are not worth a line in every message.
-function changed(a, b) {
-  if (a.value != null && b.value != null) return Math.abs(a.value - b.value) >= (b.unit === "%" ? 2 : 0.5);
-  return a.text !== b.text;
-}
-
 // Only what changed since `prev` (the last snapshot this conversation got).
-// Returns the text and the state Claude now knows (unchanged sensors keep their old value).
+// Returns the text and the state Claude now knows.
 export function renderDiff(prev, cur) {
   const known = new Map(prev.items);
   const lines = [];
   for (const [id, it] of cur.items) {
     const old = prev.items.get(id);
-    if (!old || changed(old, it)) { lines.push([id, it, old ? `${old.text} → ${it.text}` : `${it.text} (new)`]); known.set(id, it); }
+    if (!old || old.text !== it.text) { lines.push([id, it, old ? `${old.text} → ${it.text}` : `${it.text} (new)`]); known.set(id, it); }
   }
   for (const [id, it] of prev.items) if (!cur.items.has(id)) { lines.push([id, it, "now unavailable"]); known.delete(id); }
   const text = lines.length
