@@ -84,7 +84,6 @@
         <p>2. Paste the code you get here:</p>
         <div class="row">
           <input class="grow" type="text" id="rccode" placeholder="Code from the login page">
-          <button type="button" class="secondary" id="rcpaste">Paste</button>
           <button type="button" class="primary" id="rcfinish">Finish login</button>
         </div>
       </div>
@@ -251,10 +250,7 @@ async function finishLogin() {
 }
 $("#rcfinish").addEventListener("click", finishLogin);
 $("#rccode").addEventListener("keydown", (e) => { if (e.key === "Enter") finishLogin(); });
-$("#rcpaste").addEventListener("click", async () => {
-  try { $("#rccode").value = (await navigator.clipboard.readText()).trim(); $("#rccode").focus(); }
-  catch { toast("The browser blocked reading the clipboard. Long-press or right-click the field and paste."); }
-});
+
 
 $("#passform").onsubmit = async (e) => {
   e.preventDefault(); $("#savepass").disabled = true;
