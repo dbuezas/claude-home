@@ -134,7 +134,9 @@ function runClaude(text, sid, turn) {
         .map((c) => c.name.replace(/^mcp__ha__/, "").replace(/^mcp__admin__/, "admin."));
       r = msgs.findLast((m) => m.type === "result") || {};
       if (r.is_error) return reject(new Error(r.result || r.subtype || "claude error"));
-      resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms, tools });
+      const u = r.usage || {};
+      const tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+      resolve({ text: String(r.result ?? "").trim(), sid: r.session_id, cost: r.total_cost_usd, ms: r.duration_ms, turns: r.num_turns, tokens, tools });
     });
     p.stdin.end(text);
   });
@@ -184,7 +186,7 @@ async function ask(key, text) {
       return r;
     }
     sessions.set(key, { sid: r.sid, last: Date.now() });
-    log(`[${key}] ${settings().mainModel} L${turn.level} ${r.ms ?? "?"}ms tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
+    log(`[${key}] ${settings().mainModel} L${turn.level} ${r.ms ?? "?"}ms turns=${r.turns ?? "?"} tokens=${r.tokens ?? "?"} tools=${r.tools.join(",") || "-"} ${JSON.stringify(text).slice(0, 80)} -> ${JSON.stringify(r.text).slice(0, 80)}`);
     return r;
   });
   queues.set(key, job);

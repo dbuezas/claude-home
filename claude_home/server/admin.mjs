@@ -423,6 +423,7 @@ Prefer small, careful steps; say what you changed.` : "";
     return `
 
 You can read the state of ANY entity with mcp__admin__find_entities, also ones the Home Assistant tools don't show. Reading is always allowed.
+For questions about specific devices, rooms or areas, use find_entities with a search (small and fast). Avoid mcp__ha__homeassistant__GetLiveContext: it returns the whole house (tens of thousands of tokens), which is slow; use it only when you really need an overview of everything.
 Protected entities (readable, but the Home Assistant tools can't control them): ${prot || "none"}.
 
 Access levels. This conversation is at level ${level}.
