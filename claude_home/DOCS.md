@@ -74,7 +74,7 @@ This needs a one-time login to your Claude account (Settings → Remote Control)
 
 - No port is opened on your network. Only Home Assistant can reach the add-on.
 - Conversation histories are kept on the add-on's storage so they can be resumed; files older than 30 days are deleted automatically (never ones running in the Claude app).
-- Each message starts `claude -p`, which resumes the conversation. Measured on my HA box with Opus/medium: about 4 s for a simple question ("is the lamp on?") and 6–9 s for multi-step ones. About 0.7–0.9 s of that is starting Claude and connecting to Home Assistant; most of the rest is the model, with one extra round trip whenever it uses a tool.
+- Speed (measured on my HA box, Opus/medium): about 2 s for a simple question in fast mode (the default: Claude keeps running between messages, plus one spare for the next new conversation), about 3 s in normal mode (Claude starts for each message). Each message carries a small home snapshot (~3k tokens for ~150 main devices), so most state questions need no tool call. Fast mode costs ~190 MB of RAM for the first running Claude and ~120 MB for each more; the number kept and the idle time are settings.
 - Every request counts against your subscription's usage limits.
 - Automated use of a consumer subscription: check Anthropic's current terms for your plan.
 
