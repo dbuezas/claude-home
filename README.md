@@ -25,7 +25,7 @@ Requires HA OS or Supervised (it's an add-on) and HA 2025.8+.
 (or Settings → Add-ons → Add-on Store → ⋮ → Repositories → add `https://github.com/dbuezas/claude-home`) → install **Claude Home** (builds locally, a few minutes) → Start.
 
 **2. Log in** – open **Claude** in the sidebar → Settings → Claude account → **Log in to Claude**. Open the link, sign in with your Claude subscription, paste the code back. One login covers everything, including continuing in the Claude app.
-(Alternative: run `claude setup-token` on any computer with Claude Code and paste the `sk-ant-oat…` token into the add-on's Configuration tab. Continuing in the Claude app still needs the login.)
+<sub>Alternative: run `claude setup-token` on any computer with Claude Code and paste the `sk-ant-oat…` token into the add-on's Configuration tab. Continuing in the Claude app still needs the login.</sub>
 
 **3. Integration** – [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dbuezas&repository=claude-home&category=integration)
 (or HACS → ⋮ → Custom repositories → same URL, type *Integration*) → download → restart HA.
