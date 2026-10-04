@@ -16,11 +16,13 @@ chown -R claude:claude "$HOME" /data/work
 chmod 700 /run/s6/container_environment 2>/dev/null || true
 chmod 711 /data   # claude can reach its own dirs, but not list or read the rest
 
-# --- Claude subscription token (from `claude setup-token`) ---
-if ! bashio::config.has_value 'claude_oauth_token'; then
-  bashio::exit.nok "Set 'claude_oauth_token' (run 'claude setup-token' on any computer and paste the result)."
+# --- Claude login: the one-time login on the add-on page (stored in $HOME), or ---
+# --- optionally a `claude setup-token` token from the Configuration tab.     ---
+if bashio::config.has_value 'claude_oauth_token'; then
+  export CLAUDE_CODE_OAUTH_TOKEN="$(bashio::config 'claude_oauth_token')"
+else
+  bashio::log.info "No token set: Claude uses the login from the Claude page in the sidebar (Settings -> Claude account)."
 fi
-export CLAUDE_CODE_OAUTH_TOKEN="$(bashio::config 'claude_oauth_token')"
 export DISABLE_AUTOUPDATER=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 

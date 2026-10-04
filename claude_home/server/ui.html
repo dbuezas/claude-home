@@ -73,6 +73,13 @@
   </section>
 
   <section id="settings">
+    <div class="card">
+      <h2>Claude account</h2>
+      <div class="hint" style="margin:0 0 10px">Log in once with your Claude subscription. Claude Home uses this login for everything. (Alternative: paste a <code>claude setup-token</code> token in the add-on's Configuration tab; Remote Control still needs this login.)</div>
+      <h2 style="margin-top:14px">Continue in the Claude app</h2>
+      <div class="hint" style="margin:0 0 10px">At level 2 ("unlock full access"), say "continue this in the app". The conversation then moves to the Claude app and claude.ai/code, with its full history and the same level. It keeps running, also across days, until you stop it here, ask Claude to stop it, or restart the add-on.</div>
+      <div id="rcbody" class="muted">Loading…</div>
+    </div>
     <form class="card" id="settingsform">
       <h2>Settings</h2>
       <label for="main_model">Model</label>
@@ -113,11 +120,6 @@
       <select id="max_level"><option value="0">0 · none (read and Assist only)</option><option value="1">1 · protected entities</option><option value="2">2 · full access</option><option value="3">3 · supervisor</option></select>
       <div class="row" style="margin-top:14px"><button class="primary" id="savepass">Save</button></div>
     </form>
-    <div class="card">
-      <h2>Remote Control</h2>
-      <div class="hint" style="margin:0 0 10px">At level 2 ("unlock full access"), say "continue this in the app". The conversation then moves to the Claude app and claude.ai/code, with its full history and the same level. It keeps running, also across days, until you stop it here, ask Claude to stop it, or restart the add-on. This needs a one-time login to your Claude account; the token from the Configuration tab can't do it.</div>
-      <div id="rcbody" class="muted">Loading…</div>
-    </div>
   </section>
 
   <section id="devices">
@@ -163,6 +165,7 @@ loaders.status = async () => {
   try {
     const s = await api("api/status");
     $("#stats").innerHTML = [
+      ["Claude account", s.account.loggedIn ? `<span class="ok">Logged in</span>${s.account.email ? ` · ${esc(s.account.email)}` : ""}` : s.account.token ? "Token from Configuration" : `<span class="bad">Not logged in</span> · Settings → Claude account`],
       ["Home Assistant tools", s.mcp.ok ? `<span class="ok">Connected</span> · ${s.mcp.tools.length} tools` : `<span class="bad">Not reachable</span>`],
       ["Model", `${esc(s.models.main)} · effort ${esc(s.models.effort)}`],
       ["Speed", s.fast.on ? `Fast · ${s.fast.running}/${s.fast.max} running${s.fast.spare ? " (1 spare)" : ""}` : "Normal"],

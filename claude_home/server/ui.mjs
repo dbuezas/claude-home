@@ -61,6 +61,7 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
       claudeVersion,
       models: { main: s.mainModel, effort: s.effort || "default" },
       sessions: sessions.size,
+      account: await remote.status().then((r) => ({ loggedIn: r.loggedIn, email: r.email, token: !!process.env.CLAUDE_CODE_OAUTH_TOKEN })),
       fast: { on: s.fast, ...pool.status() },
       mcp: await mcpTools(gateway),
     };

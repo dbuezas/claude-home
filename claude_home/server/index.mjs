@@ -298,8 +298,15 @@ http
       if (url.pathname === "/conversation" && req.method === "POST") {
         const { text, conversation_id } = (await readJson(req)) || {};
         if (!text) return send(res, 400, { error: "text required" });
-        const r = await ask(`ha:${conversation_id || crypto.randomUUID()}`, text);
-        return send(res, 200, { speech: r.text });
+        try {
+          const r = await ask(`ha:${conversation_id || crypto.randomUUID()}`, text);
+          return send(res, 200, { speech: r.text });
+        } catch (e) {
+          if (/not logged in|\/login|invalid api key|authentication/i.test(e.message)) {
+            return send(res, 200, { speech: "Claude Home isn't logged in yet. Open Claude in the Home Assistant sidebar, go to Settings, and log in." });
+          }
+          throw e;
+        }
       }
 
       send(res, 404, { error: "not found" });
