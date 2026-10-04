@@ -23,10 +23,11 @@ Requires HA OS or Supervised (it's an add-on) and HA 2025.8+.
 
 **1. Subscription token** – on any computer with Claude Code: `claude setup-token`, copy the `sk-ant-oat…` token.
 
-**2. Add-on** – Settings → Add-ons → Add-on Store → ⋮ → Repositories → add
-`https://github.com/dbuezas/claude-home` → install **Claude Home** (builds locally, a few minutes) → Configuration: paste the token → Start. Check the log.
+**2. Add-on** – [![Add the add-on repository to my Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fdbuezas%2Fclaude-home)
+(or Settings → Add-ons → Add-on Store → ⋮ → Repositories → add `https://github.com/dbuezas/claude-home`) → install **Claude Home** (builds locally, a few minutes) → Configuration: paste the token → Start. Check the log.
 
-**3. Integration** – HACS → ⋮ → Custom repositories → same URL, type *Integration* → download → restart HA.
+**3. Integration** – [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dbuezas&repository=claude-home&category=integration)
+(or HACS → ⋮ → Custom repositories → same URL, type *Integration*) → download → restart HA.
 HA then shows **Claude Home discovered** under Settings → Devices & services → Configure. (Manual setup: host = *Hostname* on the add-on's Info page, port 8099, token from the add-on log.)
 
 **4. Use it** – Settings → Voice assistants → your assistant → Conversation agent: **Claude Home**.
