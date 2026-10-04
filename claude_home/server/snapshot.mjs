@@ -59,21 +59,22 @@ export async function homeState(protectedIds = []) {
     const name = s.attributes.friendly_name || s.entity_id;
     items.set(s.entity_id, {
       area: areaOf(s.entity_id),
-      label: `${name} (${s.entity_id}${prot.has(s.entity_id) ? ", protected" : ""})`,
+      label: `${name} | ${s.entity_id}${prot.has(s.entity_id) ? " | protected" : ""}`,
       text: state(s),
     });
   }
   return { time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), items };
 }
 
+// One device per line under its area: "- name | entity_id [| protected] | state".
 function byArea(entries) {
   const g = {};
-  for (const [, it, text] of entries) (g[it.area] ||= []).push(`${it.label}: ${text}`);
-  return Object.entries(g).sort(([a], [b]) => a.localeCompare(b)).map(([area, xs]) => `${area}: ${xs.join("; ")}`).join("\n");
+  for (const [, it, text] of entries) (g[it.area] ||= []).push(`- ${it.label} | ${text}`);
+  return Object.entries(g).sort(([a], [b]) => a.localeCompare(b)).map(([area, xs]) => `${area}:\n${xs.join("\n")}`).join("\n");
 }
 
 export function renderFull(cur) {
-  return `[Home snapshot, ${cur.time}. Main devices only; use tools for anything else.]\n${byArea([...cur.items].map(([id, it]) => [id, it, it.text]))}`;
+  return `[Home snapshot, ${cur.time}. One line per device: name | entity_id | state. Main devices only; use tools for anything else.]\n${byArea([...cur.items].map(([id, it]) => [id, it, it.text]))}`;
 }
 
 // Only what changed since `prev` (the last snapshot this conversation got).
