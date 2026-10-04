@@ -1,5 +1,5 @@
 // What the snapshot leaves out; told to Claude in the system prompt (keep in sync with keep()).
-export const SNAPSHOT_RULES = `What the [Home snapshot] contains: only entities exposed to Assist (plus protected ones) of these kinds: lights, switches, climate, covers, fans, media players, locks, vacuums, scenes, scripts, input booleans, humidifiers, water heaters, alarm panels, valves, temperature and humidity sensors, and window/door sensors. It leaves out everything else: other sensors (power, energy, battery, motion, presence, ...), buttons, numbers, selects, cameras, updates, diagnostic and configuration entities, hidden or disabled ones, and any entity that is currently unavailable or unknown. So a device missing from the snapshot may still exist, or be unavailable: check with find_entities before saying it doesn't exist or what state it is in.`;
+export const SNAPSHOT_RULES = `What the [Home snapshot] contains: only entities exposed to Assist (plus protected ones) of these kinds: lights, switches, climate, covers, fans, media players, locks, vacuums, scenes, scripts, input booleans, humidifiers, water heaters, alarm panels, valves, temperature and humidity sensors, and window/door sensors. Those of these kinds that are currently unavailable or unknown are only listed by kind and name at the end. It leaves out everything else: other sensors (power, energy, battery, motion, presence, ...), buttons, numbers, selects, cameras, updates, diagnostic and configuration entities, and hidden or disabled ones. So a device missing from the snapshot may still exist: check with find_entities before saying it doesn't exist or what state it is in.`;
 
 // A small "home snapshot" sent with every message: the main devices exposed to Assist,
 // grouped by area, with their current state. The first message of a conversation gets
@@ -54,11 +54,15 @@ export async function homeState(protectedIds = []) {
     const d = s.entity_id.split(".")[0], e = ent.get(s.entity_id);
     if (!exposed[s.entity_id]?.conversation && !prot.has(s.entity_id)) return false;
     if (e?.entity_category || e?.hidden_by || e?.disabled_by) return false;
-    if (s.state === "unavailable" || s.state === "unknown") return false;
     return CONTROL.has(d) || (SENSORS[d] || []).includes(s.attributes.device_class);
   };
+  const offline = (s) => s.state === "unavailable" || s.state === "unknown";
+  const kept = states.filter(keep);
+  // Unavailable/unknown ones only by kind and name, to keep it short.
+  const unavailable = {};
+  for (const s of kept.filter(offline)) (unavailable[s.entity_id.split(".")[0]] ||= []).push(s.attributes.friendly_name || s.entity_id);
   const items = new Map();
-  for (const s of states.filter(keep).slice(0, MAX_ITEMS)) {
+  for (const s of kept.filter((s) => !offline(s)).slice(0, MAX_ITEMS)) {
     const name = s.attributes.friendly_name || s.entity_id;
     items.set(s.entity_id, {
       area: areaOf(s.entity_id),
@@ -66,7 +70,7 @@ export async function homeState(protectedIds = []) {
       text: state(s),
     });
   }
-  return { time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), items };
+  return { time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), items, unavailable };
 }
 
 // One device per line under its area: "- name | entity_id [| protected] | state".
@@ -77,7 +81,9 @@ function byArea(entries) {
 }
 
 export function renderFull(cur) {
-  return `[Home snapshot, ${cur.time}. One line per device: name | entity_id | state. Main devices only; use tools for anything else.]\n${byArea([...cur.items].map(([id, it]) => [id, it, it.text]))}`;
+  const off = Object.entries(cur.unavailable || {}).sort(([a], [b]) => a.localeCompare(b)).map(([kind, names]) => `${kind}: ${names.join(", ")}`);
+  return `[Home snapshot, ${cur.time}. One line per device: name | entity_id | state. Main devices only; use tools for anything else.]\n${byArea([...cur.items].map(([id, it]) => [id, it, it.text]))}`
+    + (off.length ? `\nUnavailable or unknown, by kind (name only):\n${off.join("\n")}` : "");
 }
 
 // Only what changed since `prev` (the last snapshot this conversation got).
@@ -87,11 +93,11 @@ export function renderDiff(prev, cur) {
   const lines = [];
   for (const [id, it] of cur.items) {
     const old = prev.items.get(id);
-    if (!old || old.text !== it.text) { lines.push([id, it, old ? `${old.text} → ${it.text}` : `${it.text} (new)`]); known.set(id, it); }
+    if (!old || old.text !== it.text) { lines.push([id, it, old ? `${old.text} → ${it.text}` : `${it.text} (now listed)`]); known.set(id, it); }
   }
   for (const [id, it] of prev.items) if (!cur.items.has(id)) { lines.push([id, it, "no longer listed (unavailable, unknown or removed)"]); known.delete(id); }
   const text = lines.length
     ? `[Home snapshot changes since ${prev.time} (everything else as before):]\n${byArea(lines)}`
     : `[Home snapshot: nothing changed since ${prev.time}.]`;
-  return { text, known: { time: cur.time, items: known } };
+  return { text, known: { time: cur.time, items: known, unavailable: cur.unavailable } };
 }
