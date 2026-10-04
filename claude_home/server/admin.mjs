@@ -396,8 +396,10 @@ export function createAdmin({ cfg, settings, log, gateway, remote }) {
   http
     .createServer(async (req, res) => {
       const grant = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+      // A spare Claude connects before it has a conversation (key null); it is bound
+      // before its first message, and every request reads the current key.
+      if (!grants.has(grant) || req.method !== "POST") { res.writeHead(401).end(); return; }
       const key = grants.get(grant);
-      if (!key || req.method !== "POST") { res.writeHead(401).end(); return; }
       try {
         let body = "";
         for await (const c of req) body += c;
