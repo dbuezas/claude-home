@@ -1,5 +1,5 @@
 name: Claude Home
-version: "0.14.2"
+version: "0.15.0"
 slug: claude_home
 description: Claude Code (your Claude subscription) as a Home Assistant conversation agent
 url: https://github.com/dbuezas/claude-home
@@ -12,6 +12,12 @@ boot: auto
 homeassistant_api: true
 hassio_api: true
 hassio_role: manager
+# HA config folder, under a root-only parent (see Dockerfile): Claude reaches it
+# only through the gateway's /files API, at level 3.
+map:
+  - type: homeassistant_config
+    read_only: false
+    path: /secure/config
 ingress: true
 ingress_port: 8098
 panel_icon: mdi:robot-happy-outline

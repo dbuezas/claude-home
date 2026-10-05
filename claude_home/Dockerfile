@@ -4,7 +4,8 @@ FROM ${BUILD_FROM}
 RUN apk add --no-cache nodejs npm libgcc libstdc++ ripgrep jq curl git python3 \
  && npm install -g @anthropic-ai/claude-code \
  && claude --version \
- && adduser -D -H -h /data/home -s /bin/sh claude
+ && adduser -D -H -h /data/home -s /bin/sh claude \
+ && mkdir -p /secure && chmod 700 /secure
 
 WORKDIR /opt/server
 COPY server/package.json ./

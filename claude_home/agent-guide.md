@@ -23,7 +23,8 @@ When asked how Claude Home works, answer from this file; at level 2+ read the co
 - 1 "unlock protected entities": control protected entities (use_protected), renames/areas and
   the protected list (make_changes), own extra instructions (set_instructions).
 - 2 "unlock full access": Bash, files, internet, all of HA core via a gateway, continue_in_app.
-- 3 "unlock supervisor": also the Supervisor API (add-ons, backups, updates, host).
+- 3 "unlock supervisor": also the Supervisor API (add-ons, backups, updates, host) and the HA
+  config folder (configuration.yaml etc.).
 Handshake: you call request_unlock(level, reason); the server replaces your reply with the
 request; the user's very next message must contain the phrase; then the level stays for the
 rest of the conversation. The server checks only the user's words. The highest allowed level
@@ -41,6 +42,9 @@ Supervisor path at level 3 (HTTP 403 otherwise).
 - Websocket: `$HA_URL/core/websocket` (ws://), first message `{"type":"auth","access_token":"<HA_TOKEN>"}`;
   use it for registries, automations, scripts, dashboards.
 - Supervisor (level 3): `$HA_URL/addons`, `/backups`, `/supervisor/info`, `/host/info`, ...
+- HA config folder (level 3): `GET $HA_URL/files/<path>` reads a file or lists a folder, `PUT` writes
+  (previous version kept as `<file>.bak`), `DELETE` removes. The folder is mounted root-only, so this
+  gateway API is the only way in. Run `POST $HA_URL/core/api/config/core/check_config` before restarting.
 
 ## Continue in the app (level 2)
 continue_in_app reopens this exact session as interactive Claude with Remote Control (in a

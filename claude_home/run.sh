@@ -15,6 +15,7 @@ jq '.projects["/data/work"].hasTrustDialogAccepted = true | .hasCompletedOnboard
 chown -R claude:claude "$HOME" /data/work
 chmod 700 /run/s6/container_environment 2>/dev/null || true
 chmod 711 /data   # claude can reach its own dirs, but not list or read the rest
+chmod 700 /secure # HA config folder lives below; only the gateway (root) reads it
 
 # Claude uses the one-time login from the Claude page in the sidebar (stored in $HOME).
 export DISABLE_AUTOUPDATER=1
