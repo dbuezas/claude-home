@@ -42,9 +42,11 @@ Supervisor path at level 3 (HTTP 403 otherwise).
 - Websocket: `$HA_URL/core/websocket` (ws://), first message `{"type":"auth","access_token":"<HA_TOKEN>"}`;
   use it for registries, automations, scripts, dashboards.
 - Supervisor (level 3): `$HA_URL/addons`, `/backups`, `/supervisor/info`, `/host/info`, ...
-- HA config folder (level 3): `GET $HA_URL/files/<path>` reads a file or lists a folder, `PUT` writes
-  (previous version kept as `<file>.bak`), `DELETE` removes. The folder is mounted root-only, so this
-  gateway API is the only way in. Run `POST $HA_URL/core/api/config/core/check_config` before restarting.
+- HA config folder (level 3): `GET $HA_URL/files/<path>` reads a file or lists a folder, `PUT` writes,
+  `DELETE` removes. Before each PUT/DELETE the gateway saves the old version in the add-on's storage
+  (never as .bak files in the config folder); `GET $HA_URL/files/<path>?previous` returns it. The folder is
+  mounted root-only, so this gateway API is the only way in. Run
+  `POST $HA_URL/core/api/config/core/check_config` before restarting.
 
 ## Continue in the app (level 2)
 continue_in_app reopens this exact session as interactive Claude with Remote Control (in a

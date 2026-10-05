@@ -49,7 +49,7 @@ Changes apply to the next message; no restart needed.
 | 0 | – | Read every entity; control what is exposed to Assist |
 | 1 | "unlock protected entities" | Control protected devices, rename things, areas, Claude's own instructions, the protected list |
 | 2 | "unlock full access" | Commands, internet, all of Home Assistant core, continuing in the Claude app |
-| 3 | "unlock supervisor" | Also add-ons, backups, updates, the host |
+| 3 | "unlock supervisor" | Also add-ons, backups, updates, the host, and files in the HA config folder |
 
 How unlocking works:
 1. Claude asks for a level and says why.
