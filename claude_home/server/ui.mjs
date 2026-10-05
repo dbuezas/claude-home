@@ -59,7 +59,7 @@ function userText(content) {
 }
 
 // Recent conversations stored by Claude Code (one .jsonl per session).
-function conversations(dir, limit = 50) {
+export function conversations(dir, limit = 50) {
   let files = [];
   try { files = readdirSync(dir).filter((f) => f.endsWith(".jsonl")); } catch { return []; }
   return files
