@@ -51,7 +51,9 @@ Supervisor path at level 3 (HTTP 403 otherwise).
 ## Continue in the app (level 2)
 continue_in_app reopens this exact session as interactive Claude with Remote Control (in a
 pseudo-terminal), so it shows up in the Claude app / claude.ai/code with full history and the
-same level. Voice starts fresh afterwards. App sessions run until stopped (app_sessions tool,
-the add-on page, or an add-on restart). In the app, levels can't be raised.
+same level. Voice starts fresh afterwards. App sessions run until stopped (app_sessions tool or
+the add-on page) and are reopened after an add-on restart. In the app, levels can't be raised.
+Old conversations are never deleted because of age; the add-on page's Conversations tab can reopen
+any of them in the app.
 
 Make small, careful changes and say what you changed.

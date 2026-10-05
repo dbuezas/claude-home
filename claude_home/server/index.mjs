@@ -10,7 +10,7 @@
 // ("unlock full access") it also gets Bash, the internet and the gateway.
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { readFileSync, existsSync, readdirSync, statSync, rmSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { startUi } from "./ui.mjs";
 import { createAdmin } from "./admin.mjs";
@@ -187,6 +187,19 @@ function runClaude(text, sid, turn) {
   });
 }
 
+// Reopen a saved Claude Code session as an app session (voice handover, web UI, restore).
+async function startHandover({ sid, name, level }) {
+  for (const [k, v] of sessions) if (v.sid === sid) { await pool.close(k); sessions.delete(k); known.delete(k); }
+  const gw = gateway.grant(level);
+  const tools = admin.appAccess(level);
+  return remote.handover({
+    sid, name, level,
+    grant: { url: gateway.url, token: gw.token, release: () => { gw.release(); tools.release(); } },
+    mcpServers: { ha: { type: "http", url: `${gateway.url}/core/api/mcp`, headers: { Authorization: `Bearer ${gw.token}` } }, admin: tools.server },
+    appendSystemPrompt: appPrompt(settings(), level),
+  });
+}
+
 async function ask(key, text) {
   const prev = queues.get(key) || Promise.resolve();
   const job = prev.catch(() => {}).then(async () => {
@@ -238,15 +251,8 @@ async function ask(key, text) {
     const ho = admin.takeHandover(key, turn.grant);
     if (ho) {
       await pool.close(key); // only one process may own the session
-      const gw = gateway.grant(turn.level);
-      const tools = admin.appAccess(turn.level);
       try {
-        const h = await remote.handover({
-          sid: r.sid, name: ho.title, level: turn.level,
-          grant: { url: gateway.url, token: gw.token, release: () => { gw.release(); tools.release(); } },
-          mcpServers: { ha: { type: "http", url: `${gateway.url}/core/api/mcp`, headers: { Authorization: `Bearer ${gw.token}` } }, admin: tools.server },
-          appendSystemPrompt: appPrompt(settings(), turn.level),
-        });
+        const h = await startHandover({ sid: r.sid, name: ho.title, level: turn.level });
         sessions.delete(key);
         known.delete(key);
         admin.resetLevel(key);
@@ -317,27 +323,14 @@ http
   })
   .listen(cfg.port, () => log(`claude-home API listening on :${cfg.port}`));
 
-startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool, gateway });
+startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool, gateway, startHandover });
 
 admin.enforceProtected(true);
 
-// Conversation histories are kept so they can be resumed; delete old ones so they
-// don't pile up. Never touches sessions that are running in the Claude app.
-const KEEP_DAYS = 30;
-function cleanup() {
-  const root = `${baseEnv().HOME}/.claude/projects`;
-  const active = remote.activeSessions();
-  let removed = 0;
-  try {
-    for (const dir of readdirSync(root)) {
-      for (const f of readdirSync(`${root}/${dir}`)) {
-        const p = `${root}/${dir}/${f}`;
-        if (active.has(f.replace(/\.jsonl$/, ""))) continue;
-        if (Date.now() - statSync(p).mtimeMs > KEEP_DAYS * 86_400_000) { rmSync(p, { recursive: true, force: true }); removed++; }
-      }
-    }
-  } catch {}
-  if (removed) log(`cleanup: removed ${removed} conversation file(s) older than ${KEEP_DAYS} days`);
-}
-cleanup();
-setInterval(cleanup, 86_400_000).unref();
+// App sessions that were running before a restart or update come back.
+setTimeout(async () => {
+  for (const h of remote.saved()) {
+    try { await startHandover(h); log(`reopened app session "${h.name}"`); }
+    catch (e) { log(`could not reopen app session "${h.name}": ${e.message}`); }
+  }
+}, 5000);

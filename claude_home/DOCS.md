@@ -39,6 +39,7 @@ Sidebar → **Claude**:
 - **Status** – connection to Home Assistant, model, how many Claudes are running.
 - **Settings** – Claude account login and running app sessions, model and effort, conversation memory, timeout, extra instructions, speed (fast or normal, how many Claudes to keep, when to close unused ones), the highest access level.
 - **Protected** – which devices need level 1 before Claude may control them.
+- **Conversations** – recent conversations; reopen any of them in the Claude app.
 
 Changes apply to the next message; no restart needed.
 
@@ -67,7 +68,7 @@ How it is enforced:
 
 At level 2 ("unlock full access"), say "continue this in the app". The add-on reopens the same Claude Code session, with its full history (messages and tool calls) and the same level, as an interactive Claude with Remote Control on. It shows up in the Claude app and on claude.ai/code under the title Claude gave it. Your next voice message starts a fresh conversation, so only one place owns the session.
 
-App sessions keep running, also across days, until you stop them (Settings page, or ask Claude "stop my app sessions") or restart the add-on. In the app, the level can't be raised; unlock it by voice first.
+App sessions keep running, also across days, until you stop them (Settings page, or ask Claude "stop my app sessions"). After an add-on restart or update they are reopened. The **Conversations** tab can also reopen an older conversation in the app, at a level you pick. In the app, the level can't be raised; unlock it by voice first.
 
 This uses the login from install step 2.
 
@@ -104,7 +105,7 @@ All of these are also on the Settings page.
 ## Notes
 
 - No port is opened on your network. Only Home Assistant can reach the add-on.
-- Conversation histories are kept on the add-on's storage so they can be resumed; files older than 30 days are deleted automatically (never ones running in the Claude app).
+- Conversation histories stay on the add-on's storage (they are never deleted because of age). The **Conversations** tab lists the recent ones and can reopen any of them in the Claude app.
 - Claude's own guide to this add-on is [`claude_home/agent-guide.md`](claude_home/agent-guide.md); Claude reads it in every session and can read this repo's code at level 2+.
 - Every message counts against your subscription's usage limits.
 - Automated use of a consumer subscription: check Anthropic's current terms for your plan.

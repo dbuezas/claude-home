@@ -1,7 +1,7 @@
 // Ingress web UI: status, settings, protected entities.
 // Only Home Assistant's ingress proxy may reach it; HA has already authenticated the user.
 import http from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { haWs, readOptions, writeOptions } from "./ha.mjs";
@@ -50,7 +50,34 @@ async function mcpTools(gateway) {
   return value;
 }
 
-export function startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool, gateway }) {
+// The user's own words from a stored message (without the home snapshot and system notes).
+function userText(content) {
+  let t = typeof content === "string" ? content : (content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+  if (!t) return "";
+  if (t.startsWith("[Home snapshot")) t = t.includes("\n\n") ? t.slice(t.indexOf("\n\n") + 2) : "";
+  return t.replace(/^\[System note: [\s\S]*?\]\n/, "").trim();
+}
+
+// Recent conversations stored by Claude Code (one .jsonl per session).
+function conversations(dir, limit = 50) {
+  let files = [];
+  try { files = readdirSync(dir).filter((f) => f.endsWith(".jsonl")); } catch { return []; }
+  return files
+    .map((f) => ({ f, mtime: statSync(`${dir}/${f}`).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, limit)
+    .map(({ f, mtime }) => {
+      const said = [];
+      for (const line of readFileSync(`${dir}/${f}`, "utf8").split("\n")) {
+        if (!line.includes('"type":"user"')) continue;
+        try { const m = JSON.parse(line); if (m.type === "user" && !m.isMeta) { const t = userText(m.message?.content); if (t) said.push(t); } } catch {}
+      }
+      return { sid: f.replace(/\.jsonl$/, ""), updated: new Date(mtime).toISOString(), messages: said.length, first: said[0] || "", last: said.at(-1) || "" };
+    })
+    .filter((c) => c.messages > 0);
+}
+
+export function startUi({ cfg, settings, sessions, readJson, send, log, admin, remote, pool, syncPool, gateway, startHandover }) {
   const allowAny = env.UI_ALLOW_ANY === "1"; // local development only
 
   async function status() {
@@ -100,6 +127,23 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
     "POST /api/options": async (req) => { await saveOptions((await readJson(req)) || {}); return { ok: true }; },
     "GET /api/entities": async () => entities(),
     "GET /api/remote": async () => remote.status(),
+    "GET /api/conversations": async () => {
+      const inApp = new Map((await remote.status()).sessions.map((h) => [h.sid, h]));
+      const voice = new Set([...sessions.values()].map((v) => v.sid));
+      const dir = `${process.env.CLAUDE_HOME_DIR || process.env.HOME}/.claude/projects/${cfg.workDir.replace(/[^A-Za-z0-9]/g, "-")}`;
+      return {
+        maxLevel: Number.isInteger(Number(readOptions(cfg.optionsFile).max_level)) ? Number(readOptions(cfg.optionsFile).max_level) : 3,
+        list: conversations(dir).map((c) => ({ ...c, app: inApp.get(c.sid) || null, voice: voice.has(c.sid) })),
+      };
+    },
+    "POST /api/conversations/continue": async (req) => {
+      const { sid, level, name } = (await readJson(req)) || {};
+      if (!/^[0-9a-f-]{36}$/.test(String(sid))) throw new Error("bad session id");
+      const o = readOptions(cfg.optionsFile);
+      const max = Number.isInteger(Number(o.max_level)) ? Number(o.max_level) : 3;
+      const lvl = Math.max(0, Math.min(max, Math.round(Number(level) || 0)));
+      return startHandover({ sid, level: lvl, name: String(name || "Home Assistant").slice(0, 60) });
+    },
     "POST /api/remote/login": async () => remote.startLogin(),
     "POST /api/remote/code": async (req) => remote.submitCode(((await readJson(req)) || {}).code || ""),
     "POST /api/remote/logout": async () => { await remote.logout(); return remote.status(); },

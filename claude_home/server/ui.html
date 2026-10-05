@@ -67,6 +67,7 @@
     <button data-tab="status" class="on">Status</button>
     <button data-tab="settings">Settings</button>
     <button data-tab="devices">Protected</button>
+    <button data-tab="conversations">Conversations</button>
   </nav>
 </header>
 <main>
@@ -144,6 +145,14 @@
       </div>
       <div class="muted" style="margin-top:10px" id="entcount"></div>
       <div class="table-wrap" style="margin-top:8px"><table><thead><tr><th style="width:70px">Protected</th><th>Entity</th><th>State</th></tr></thead><tbody id="entities"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="conversations">
+    <div class="card">
+      <h2>Conversations</h2>
+      <div class="hint" style="margin:0 0 10px">The most recent 50, newest first. They are kept on the add-on and never deleted because of age. <b>Continue in app</b> reopens one in the Claude app and on claude.ai/code, with its full history, at the level you pick. The voice assistant then starts fresh next time.</div>
+      <div class="table-wrap"><table><thead><tr><th>When</th><th>Conversation</th><th>Msgs</th><th></th></tr></thead><tbody id="convs"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody></table></div>
     </div>
   </section>
 
@@ -292,6 +301,29 @@ $("#entities").addEventListener("change", async (e) => {
     renderEnts();
   } catch (err) { e.target.checked = !e.target.checked; toast(err.message); }
 });
+
+// ---- conversations
+loaders.conversations = async () => {
+  try {
+    const { list, maxLevel } = await api("api/conversations");
+    const levels = [0, 1, 2, 3].filter((l) => l <= maxLevel);
+    $("#convs").innerHTML = list.length ? list.map((c) => `<tr>
+      <td class="muted">${new Date(c.updated).toLocaleString()}</td>
+      <td><div class="ent-name">${esc(c.first.slice(0, 120))}</div>${c.messages > 1 ? `<div class="ent-id">… ${esc(c.last.slice(0, 120))}</div>` : ""}</td>
+      <td class="muted">${c.messages}</td>
+      <td>${c.app ? (c.app.url ? `<a href="${esc(c.app.url)}" target="_blank" rel="noopener">Open in app</a>` : "starting…")
+        : `<div class="row" style="flex-wrap:nowrap"><select data-level="${c.sid}" style="width:auto">${levels.map((l) => `<option value="${l}">level ${l}</option>`).join("")}</select><button type="button" class="secondary" data-continue="${c.sid}" data-name="${esc(c.first.slice(0, 50))}">Continue in app</button></div>${c.voice ? '<div class="ent-id">active by voice</div>' : ""}`}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="muted">No conversations yet.</td></tr>`;
+    document.querySelectorAll("[data-continue]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true; b.textContent = "Starting…";
+      try {
+        const h = await api("api/conversations/continue", { sid: b.dataset.continue, level: document.querySelector(`[data-level="${b.dataset.continue}"]`).value, name: b.dataset.name });
+        toast(`Running in the app as "${h.name}"`);
+      } catch (e) { toast(e.message); }
+      loaders.conversations();
+    }));
+  } catch (e) { $("#convs").innerHTML = `<tr><td colspan="4" class="bad">${esc(e.message)}</td></tr>`; }
+};
 
 let start = "status";
 try { start = localStorage.getItem("tab") || "status"; } catch {}

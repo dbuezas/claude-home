@@ -7,16 +7,27 @@
 // Claude uses the one-time login done from the web UI (stored in the add-on).
 //
 // Handed-over sessions show up in the Claude app; they keep running (also across days)
-// until stopped from the web UI, by asking Claude, or by restarting the add-on.
+// until stopped from the web UI or by asking Claude. They are remembered in
+// HANDOVERS_FILE and reopened after an add-on restart or update.
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 const PTYRUN = new URL("./ptyrun.py", import.meta.url).pathname;
+const HANDOVERS_FILE = process.env.HANDOVERS_FILE || "/data/handovers.json";
+let shuttingDown = false; // the add-on is stopping: keep the list so sessions come back
+process.once("SIGTERM", () => { shuttingDown = true; process.exit(0); });
 
 export function createRemoteControl({ cfg, user, baseEnv, log }) {
   let login = null; // { proc, url, output, ready }
   const handovers = new Map(); // id -> { id, name, sid, level, started, url, output, proc, release }
+  const persist = () => {
+    if (shuttingDown) return;
+    try { writeFileSync(HANDOVERS_FILE, JSON.stringify([...handovers.values()].map(({ sid, name, level }) => ({ sid, name, level }))), { mode: 0o600 }); } catch {}
+  };
+  // App sessions that were running when the add-on last stopped.
+  const saved = () => { try { return JSON.parse(readFileSync(HANDOVERS_FILE, "utf8")); } catch { return []; } };
 
   // Remote Control needs Claude's normal network traffic.
   const env = (extra = {}) => {
@@ -37,7 +48,7 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
     return {
       loggedIn, email,
       login: login ? { url: login.url } : null,
-      sessions: [...handovers.values()].map(({ id, name, level, started, url }) => ({ id, name, level, started, url })),
+      sessions: [...handovers.values()].map(({ id, name, sid, level, started, url }) => ({ id, name, sid, level, started, url })),
     };
   }
 
@@ -105,7 +116,9 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
       log(`handover ${id} "${name}" ended (${code})${h.url ? "" : `: ${h.output.trim().slice(-300)}`}`);
       h.release();
       handovers.delete(id);
+      persist();
     });
+    persist();
     // Wait for Remote Control to report its link.
     for (let i = 0; i < 40 && !h.url && handovers.has(id); i++) await new Promise((r) => setTimeout(r, 500));
     if (!handovers.has(id)) throw new Error(`The handover did not start: ${h.output.trim().slice(-300)}`);
@@ -122,5 +135,5 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
 
   const activeSessions = () => new Set([...handovers.values()].map((h) => h.sid));
 
-  return { status, startLogin, submitCode, logout, handover, stop, stopAll, activeSessions };
+  return { status, startLogin, submitCode, logout, handover, stop, stopAll, activeSessions, saved };
 }
