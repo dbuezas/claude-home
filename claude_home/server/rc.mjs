@@ -31,7 +31,7 @@ export function createRemoteControl({ cfg, user, baseEnv, log }) {
 
   // Remote Control needs Claude's normal network traffic.
   const env = (extra = {}) => {
-    const e = { ...baseEnv(), ...extra };
+    const e = { ...baseEnv({ apiKey: false }), ...extra }; // Remote Control only works with the subscription login
     delete e.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
     return e;
   };

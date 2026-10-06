@@ -88,7 +88,7 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
       claudeVersion,
       models: { main: s.mainModel, effort: s.effort || "default" },
       sessions: sessions.size,
-      account: await remote.status().then((r) => ({ loggedIn: r.loggedIn, email: r.email })),
+      account: await remote.status().then((r) => ({ loggedIn: r.loggedIn, email: r.email, apiKey: !!s.apiKey })),
       fast: { on: s.fast, ...pool.status() },
       mcp: await mcpTools(gateway),
     };
@@ -125,6 +125,15 @@ export function startUi({ cfg, settings, sessions, readJson, send, log, admin, r
       };
     },
     "POST /api/options": async (req) => { await saveOptions((await readJson(req)) || {}); return { ok: true }; },
+    "GET /api/apikey": async () => ({ set: !!settings().apiKey }),
+    "POST /api/apikey": async (req) => {
+      const key = String(((await readJson(req)) || {}).key ?? "").trim();
+      if (key && !/^sk-ant-[\w-]{20,}$/.test(key)) throw new Error("That doesn't look like an Anthropic API key (sk-ant-...).");
+      const next = { ...readOptions(cfg.optionsFile), anthropic_api_key: key };
+      await writeOptions(cfg.optionsFile, next);
+      syncPool();
+      return { set: !!key };
+    },
     "GET /api/entities": async () => entities(),
     "GET /api/remote": async () => remote.status(),
     "GET /api/conversations": async () => {

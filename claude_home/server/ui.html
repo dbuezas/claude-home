@@ -78,7 +78,13 @@
   <section id="settings">
     <div class="card">
       <h2>Claude account</h2>
-      <div class="hint" style="margin:0 0 10px">Log in once with your Claude subscription. Claude Home uses this login for everything.</div>
+      <div class="hint" style="margin:0 0 10px">Either log in once with your Claude subscription, or use an Anthropic API key (better when several people share the house: API use is billed per token and is meant for automation). With a key set, voice and chat use the key; the subscription login is then only needed for "Continue in the Claude app".</div>
+      <div id="keystate" style="margin-bottom:10px"></div>
+      <div class="row" style="margin-bottom:14px">
+        <input class="grow" type="password" id="apikey" placeholder="Anthropic API key (sk-ant-…)" autocomplete="off">
+        <button type="button" class="primary" id="keysave">Save key</button>
+        <button type="button" class="secondary" id="keyremove">Remove key</button>
+      </div>
       <div id="accountstate" style="margin-bottom:10px">Loading…</div>
       <div id="loginbox" style="display:none">
         <p>1. Open <a id="loginlink" href="#" target="_blank" rel="noopener">the login page</a> and sign in.</p>
@@ -185,7 +191,7 @@ loaders.status = async () => {
   try {
     const s = await api("api/status");
     $("#stats").innerHTML = [
-      ["Claude account", s.account.loggedIn ? `<span class="ok">Logged in</span>${s.account.email ? ` · ${esc(s.account.email)}` : ""}` : `<span class="bad">Not logged in</span> · Settings → Claude account`],
+      ["Claude account", s.account.apiKey ? `<span class="ok">Using API key</span>${s.account.loggedIn ? " · subscription login also present" : ""}` : s.account.loggedIn ? `<span class="ok">Logged in</span>${s.account.email ? ` · ${esc(s.account.email)}` : ""}` : `<span class="bad">Not logged in</span> · Settings → Claude account`],
       ["Home Assistant tools", s.mcp.ok ? `<span class="ok">Connected</span> · ${s.mcp.tools.length} tools` : `<span class="bad">Not reachable</span>`],
       ["Model", `${esc(s.models.main)} · effort ${esc(s.models.effort)}`],
       ["Speed", s.fast.on ? `Fast · ${s.fast.running}/${s.fast.max} running${s.fast.spare ? " (1 spare)" : ""}` : "Normal"],
@@ -218,6 +224,7 @@ loaders.settings = async () => {
     fastHint();
     $("#max_level").value = String(o.max_level === "" || o.max_level == null ? 3 : o.max_level);
     loadRemote();
+    loadKey();
   }
   catch (e) { toast(e.message); }
 };
@@ -249,6 +256,19 @@ async function loadRemote() {
     }));
   } catch (e) { $("#rcbody").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
+async function loadKey() {
+  try {
+    const { set } = await api("api/apikey");
+    $("#keystate").innerHTML = set ? `<span class="ok">API key in use</span> · voice and chat are billed to it.` : `<span class="muted">No API key: voice and chat use the subscription login.</span>`;
+    $("#keyremove").style.display = set ? "" : "none";
+  } catch (e) { $("#keystate").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+async function setKey(key) {
+  try { await api("api/apikey", { key }); $("#apikey").value = ""; toast(key ? "API key saved" : "API key removed"); } catch (e) { toast(e.message); }
+  loadKey();
+}
+$("#keysave").addEventListener("click", () => { const k = $("#apikey").value.trim(); k ? setKey(k) : toast("Paste the key first"); });
+$("#keyremove").addEventListener("click", () => setKey(""));
 async function finishLogin() {
   const code = $("#rccode").value.trim();
   if (!code) return toast("Paste the code first");

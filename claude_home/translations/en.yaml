@@ -13,6 +13,9 @@ configuration:
   api_token:
     name: API token
     description: Token the Home Assistant integration uses to call this add-on. Leave empty to auto-generate (shown in the log).
+  anthropic_api_key:
+    name: Anthropic API key
+    description: Optional. Bill Claude to an API key (console.anthropic.com) instead of the subscription login. Takes precedence over the login for voice and chat; Remote Control (app handover) still needs the login. Also settable on the Claude page.
   extra_instructions:
     name: Extra instructions
     description: Appended to the system prompt, e.g. house layout, nicknames for rooms.
