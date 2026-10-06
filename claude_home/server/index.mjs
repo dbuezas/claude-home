@@ -5,7 +5,7 @@
 //   :8098 (Ingress web UI, only reachable through Home Assistant) -> see ui.mjs
 //   127.0.0.1:8097 (admin tools, per-turn token) -> see admin.mjs (access levels)
 //   127.0.0.1:8096 (gateway to Home Assistant, per-level grants) -> see proxy.mjs
-// Every request runs `claude -p` (Claude Code, logged in with your subscription) as
+// Every request runs `claude -p` (Claude Code, logged in with your subscription or using an API key) as
 // the unprivileged "claude" user. At level 0-1 it only gets MCP tools; from level 2
 // ("unlock full access") it also gets Bash, the internet and the gateway.
 import http from "node:http";
@@ -49,6 +49,7 @@ function settings() {
     timeoutMs: Number(o.request_timeout || 120) * 1000,
     effort: o.effort && o.effort !== "default" ? o.effort : o.effort === "default" ? "" : "low",
     extra: o.extra_instructions || "",
+    apiKey: String(o.anthropic_api_key || "").trim(),
     fast: o.fast_mode !== false,
     fastKeep: Number(o.fast_keep || 3),
     fastIdleMs: Number(o.fast_idle_minutes || 15) * 60_000,
@@ -64,9 +65,11 @@ const user = (() => {
 })();
 
 // The environment Claude gets: no Supervisor token, no add-on API token.
-const baseEnv = () => {
+// An Anthropic API key (add-on option) replaces the subscription login for voice and chat.
+const baseEnv = ({ apiKey = true } = {}) => {
   const keep = ["PATH", "LANG", "TZ", "USER", "LOGNAME", "TMPDIR", "DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"];
-  return { ...Object.fromEntries(keep.filter((k) => env[k]).map((k) => [k, env[k]])), HOME: env.CLAUDE_HOME_DIR || env.HOME };
+  const key = apiKey && settings().apiKey;
+  return { ...Object.fromEntries(keep.filter((k) => env[k]).map((k) => [k, env[k]])), HOME: env.CLAUDE_HOME_DIR || env.HOME, ...(key ? { ANTHROPIC_API_KEY: key } : {}) };
 };
 
 const gateway = createProxy({ port: cfg.gatewayPort, log });
@@ -119,7 +122,7 @@ function claudeLaunch(s, turn, sid, stream) {
 }
 
 // What a running Claude was started with; if it differs, the Claude is replaced.
-const fingerprint = (s, level) => JSON.stringify([s.mainModel, s.effort, level, systemPrompt(s, level)]);
+const fingerprint = (s, level) => JSON.stringify([s.mainModel, s.effort, level, !!s.apiKey, s.apiKey.slice(-6), systemPrompt(s, level)]);
 
 // Shape a result message like runClaude's.
 function shapeResult(r, tools) {
@@ -309,7 +312,7 @@ http
           return send(res, 200, { speech: r.text });
         } catch (e) {
           if (/not logged in|\/login|invalid api key|authentication/i.test(e.message)) {
-            return send(res, 200, { speech: "Claude Home isn't logged in yet. Open Claude in the Home Assistant sidebar, go to Settings, and log in." });
+            return send(res, 200, { speech: "Claude Home isn't logged in yet. Open Claude in the Home Assistant sidebar, go to Settings, and log in or add an API key." });
           }
           throw e;
         }

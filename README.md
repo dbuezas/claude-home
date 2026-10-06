@@ -100,6 +100,7 @@ All of these are also on the Settings page.
 | `fast_idle_minutes` | 15 | Close an unused Claude after this long |
 | `protected_entities` | – | Easier to manage on the Protected tab |
 | `extra_instructions` | – | Appended to the system prompt (room nicknames, house quirks) |
+| `anthropic_api_key` | – | Optional Anthropic API key. If set, voice and chat use it (billed per token) instead of the subscription login. Also settable on the Claude page. Remote Control (app handover) always needs the subscription login |
 | `api_token` | auto | Token the integration uses (shown in the add-on log) |
 
 ## Notes
@@ -109,6 +110,7 @@ All of these are also on the Settings page.
 - Claude's own guide to this add-on is [`claude_home/agent-guide.md`](claude_home/agent-guide.md); Claude reads it in every session and can read this repo's code at level 2+.
 - Every message counts against your subscription's usage limits.
 - Automated use of a consumer subscription: check Anthropic's current terms for your plan.
+- Several people in the house, or you want to stay clearly within the terms? Add an API key (Claude page → Settings → Claude account, or the `anthropic_api_key` option). Voice and chat then use the key and never the subscription. The key is visible to Claude at level 2+ (it can run commands), like the login is.
 
 ## Tests
 
