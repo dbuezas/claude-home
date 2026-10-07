@@ -73,6 +73,9 @@ export async function homeState(protectedIds = []) {
   return { time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), items, unavailable };
 }
 
+// Snapshots go in a code block, so they stay readable when the conversation moves to the Claude app.
+const fence = (text) => "```\n" + text + "\n```";
+
 // One device per line under its area: "- name | entity_id [| protected] | state".
 function byArea(entries) {
   const g = {};
@@ -82,8 +85,8 @@ function byArea(entries) {
 
 export function renderFull(cur) {
   const off = Object.entries(cur.unavailable || {}).sort(([a], [b]) => a.localeCompare(b)).map(([kind, names]) => `${kind}: ${names.join(", ")}`);
-  return `[Home snapshot, ${cur.time}. One line per device: name | entity_id | state. Main devices only; use tools for anything else.]\n${byArea([...cur.items].map(([id, it]) => [id, it, it.text]))}`
-    + (off.length ? `\nUnavailable or unknown, by kind (name only):\n${off.join("\n")}` : "");
+  return fence(`[Home snapshot, ${cur.time}. One line per device: name | entity_id | state. Main devices only; use tools for anything else.]\n${byArea([...cur.items].map(([id, it]) => [id, it, it.text]))}`
+    + (off.length ? `\nUnavailable or unknown, by kind (name only):\n${off.join("\n")}` : ""));
 }
 
 // Only what changed since `prev` (the last snapshot this conversation got).
@@ -96,8 +99,8 @@ export function renderDiff(prev, cur) {
     if (!old || old.text !== it.text) { lines.push([id, it, old ? `${old.text} → ${it.text}` : `${it.text} (now listed)`]); known.set(id, it); }
   }
   for (const [id, it] of prev.items) if (!cur.items.has(id)) { lines.push([id, it, "no longer listed (unavailable, unknown or removed)"]); known.delete(id); }
-  const text = lines.length
+  const text = fence(lines.length
     ? `[Home snapshot changes since ${prev.time} (everything else as before):]\n${byArea(lines)}`
-    : `[Home snapshot: nothing changed since ${prev.time}.]`;
+    : `[Home snapshot: nothing changed since ${prev.time}.]`);
   return { text, known: { time: cur.time, items: known, unavailable: cur.unavailable } };
 }

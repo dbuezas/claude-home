@@ -54,7 +54,8 @@ async function mcpTools(gateway) {
 function userText(content) {
   let t = typeof content === "string" ? content : (content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
   if (!t) return "";
-  if (t.startsWith("[Home snapshot")) t = t.includes("\n\n") ? t.slice(t.indexOf("\n\n") + 2) : "";
+  if (t.startsWith("```\n[Home snapshot")) t = t.includes("\n```\n\n") ? t.slice(t.indexOf("\n```\n\n") + 6) : "";
+  else if (t.startsWith("[Home snapshot")) t = t.includes("\n\n") ? t.slice(t.indexOf("\n\n") + 2) : ""; // before 0.17.1
   return t.replace(/^\[System note: [\s\S]*?\]\n/, "").trim();
 }
 
