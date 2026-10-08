@@ -38,7 +38,12 @@ async function loadRegistry() {
 
 function state(s) {
   const a = s.attributes, d = s.entity_id.split(".")[0];
-  if (d === "light" && s.state === "on" && a.brightness != null) return `on ${Math.round(a.brightness / 2.55)}%`;
+  if (d === "light" && s.state === "on" && a.brightness != null) {
+    const tone = a.color_mode === "color_temp" && a.color_temp_kelvin ? ` ${a.color_temp_kelvin}K`
+      : ["hs", "rgb", "rgbw", "rgbww", "xy"].includes(a.color_mode) && a.rgb_color ? ` rgb(${a.rgb_color.join(",")})` : "";
+    const effect = a.effect && !["none", "off", "stop"].includes(String(a.effect).toLowerCase()) ? `, effect ${a.effect}` : "";
+    return `on ${Math.round(a.brightness / 2.55)}%${tone}${effect}`;
+  }
   if (d === "climate") return `${s.state}, ${a.current_temperature ?? "?"}° now, set ${a.temperature ?? "?"}°`;
   if (d === "cover" && a.current_position != null) return `${s.state} ${a.current_position}%`;
   if (d === "sensor" && !Number.isNaN(Number(s.state))) return `${Math.round(Number(s.state) * 10) / 10}${a.unit_of_measurement || ""}`;
